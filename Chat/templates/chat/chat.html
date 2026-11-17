@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 对话</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f5f6f8;
+    color: #1f2329;
+  }
+  .app {
+    max-width: 760px;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    box-shadow: 0 0 24px rgba(0, 0, 0, .06);
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid #e8eaed;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .hint { font-size: 12px; color: #8a9099; }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .tip { color: #8a9099; font-size: 13px; text-align: center; margin-top: 40px; }
+  .turn {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .msg {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user {
+    align-self: flex-end;
+    position: relative;
+    background: #3370ff;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: #f2f3f5;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.error {
+    align-self: flex-start;
+    background: #fff1f0;
+    color: #d4380d;
+    border: 1px solid #ffccc7;
+  }
+  .msg.pending { color: #8a9099; }
+  .msg.user .edit {
+    position: absolute;
+    left: -50px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: auto;
+    padding: 2px 6px;
+    border: none;
+    background: none;
+    color: #8a9099;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .msg.user:hover .edit, .msg.user .edit:focus { opacity: 1; }
+  .msg.user.editing {
+    width: 78%;
+    max-width: 78%;
+    background: #fff;
+    border: 1px solid #d9dde3;
+    color: #1f2329;
+  }
+  .msg.user.editing textarea {
+    width: 100%;
+    min-height: 56px;
+    padding: 6px 8px;
+    border: 1px solid #d9dde3;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 14px;
+    resize: vertical;
+    outline: none;
+  }
+  .msg.user.editing textarea:focus { border-color: #3370ff; }
+  .msg.user .actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+  .msg.user .actions button {
+    height: 30px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-save { background: #3370ff; color: #fff; }
+  .btn-cancel { background: #f2f3f5; color: #1f2329; }
+  form {
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid #e8eaed;
+  }
+  #input {
+    flex: 1;
+    resize: none;
+    height: 44px;
+    padding: 11px 12px;
+    font: inherit;
+    font-size: 14px;
+    border: 1px solid #d9dde3;
+    border-radius: 8px;
+    outline: none;
+  }
+  #input:focus { border-color: #3370ff; }
+  #send {
+    padding: 0 20px;
+    height: 44px;
+    border: none;
+    border-radius: 8px;
+    background: #3370ff;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #send:disabled { background: #a8c0ff; cursor: default; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>AI 对话</h1>
+    <span class="hint">悬停自己的消息可修改，改完重新生成</span>
+  </header>
+  <main id="messages">
+    <div class="tip">输入内容开始对话，Enter 发送，Shift+Enter 换行。</div>
+  </main>
+  <form id="form">
+    <textarea id="input" placeholder="说点什么…"></textarea>
+    <button id="send" type="submit">发送</button>
+  </form>
+</div>
+<script>
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const messages = document.getElementById('messages');
+  const sessionId = 'web-' + Math.random().toString(36).slice(2, 10);
+
+  function scrollToBottom() {
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function renderTurn(turn) {
+    const d = turn._data;
+    turn.innerHTML = '';
+
+    const user = document.createElement('div');
+    user.className = 'msg user';
+
+    if (d.editing) {
+      user.classList.add('editing');
+      const ta = document.createElement('textarea');
+      ta.className = 'editor';
+      ta.value = d.text;
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn-save';
+      save.textContent = '保存并重新生成';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn-cancel';
+      cancel.textContent = '取消';
+      actions.append(save, cancel);
+      user.append(ta, actions);
+    } else {
+      const text = document.createElement('span');
+      text.className = 'text';
+      text.textContent = d.text;
+      user.appendChild(text);
+
+      if (d.recordId && !d.pending) {
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'edit';
+        edit.textContent = '编辑';
+        edit.title = '修改这条消息并重新生成回复';
+        user.appendChild(edit);
+      }
+    }
+
+    const bot = document.createElement('div');
+    bot.className = 'msg bot';
+    if (d.error) bot.classList.add('error');
+    if (d.pending) bot.classList.add('pending');
+    bot.textContent = d.reply;
+
+    turn.append(user, bot);
+  }
+
+  function setBusy(busy) {
+    sendBtn.disabled = busy;
+    sendBtn.textContent = busy ? '思考中…' : '发送';
+  }
+
+  async function submitEdit(turn) {
+    const d = turn._data;
+    d.reply = '…';
+    d.error = false;
+    d.pending = true;
+    renderTurn(turn);
+
+    try {
+      const res = await fetch('/api/chat/' + d.recordId + '/edit/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: d.text })
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (res.ok) {
+        d.reply = data.reply || '(空回复)';
+      } else {
+        d.error = true;
+        d.reply = data.error || ('请求失败 (HTTP ' + res.status + ')');
+      }
+    } catch (err) {
+      d.error = true;
+      d.reply = '网络错误：' + err.message;
+    }
+
+    d.pending = false;
+    renderTurn(turn);
+    scrollToBottom();
+  }
+
+  messages.addEventListener('click', function (e) {
+    const turn = e.target.closest('.turn');
+    if (!turn || !turn._data) return;
+
+    if (e.target.closest('.edit')) {
+      turn._data.editing = true;
+      renderTurn(turn);
+      const ta = turn.querySelector('.editor');
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    } else if (e.target.closest('.btn-cancel')) {
+      turn._data.editing = false;
+      renderTurn(turn);
+    } else if (e.target.closest('.btn-save')) {
+      const ta = turn.querySelector('.editor');
+      const text = ta.value.trim();
+      if (!text) {
+        ta.focus();
+        return;
+      }
+      turn._data.editing = false;
+      turn._data.text = text;
+      submitEdit(turn);
+    }
+  });
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || sendBtn.disabled) return;
+
+    input.value = '';
+    const tip = messages.querySelector('.tip');
+    if (tip) tip.remove();
+
+    const turn = document.createElement('div');
+    turn.className = 'turn';
+    turn._data = { text: text, reply: '…', recordId: null, pending: true, error: false, editing: false };
+    messages.appendChild(turn);
+    renderTurn(turn);
+    scrollToBottom();
+    setBusy(true);
+
+    try {
+      const res = await fetch('/api/chat/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, session_id: sessionId })
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (res.ok) {
+        turn._data.recordId = data.record_id;
+        turn._data.reply = data.reply || '(空回复)';
+      } else {
+        turn._data.error = true;
+        turn._data.reply = data.error || ('请求失败 (HTTP ' + res.status + ')');
+      }
+    } catch (err) {
+      turn._data.error = true;
+      turn._data.reply = '网络错误：' + err.message;
+    }
+
+    turn._data.pending = false;
+    setBusy(false);
+    renderTurn(turn);
+    scrollToBottom();
+    input.focus();
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+</script>
+</body>
+</html>

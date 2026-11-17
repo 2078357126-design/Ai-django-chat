@@ -1,0 +1,6 @@
+Django>=6.1,<7
+openai>=3.51
+PyMySQL>=1.2
+cryptography>=42
+gunicorn>=23
+whitenoise>=6.7

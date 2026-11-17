@@ -1,4 +1,4 @@
-Django>=6.1,<7
+Django>=5.2,<7
 openai>=3.51
 PyMySQL>=1.2
 cryptography>=42

@@ -37,8 +37,6 @@ fi
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://api.deepseek.com}"
 export OPENAI_MODEL="${OPENAI_MODEL:-deepseek-flash}"
-export MYSQL_PASSWORD=12345678
-export MySQL_PASSWORD=12345678
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
@@ -53,24 +51,13 @@ while lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; do
   PORT=$((PORT + 1))
 done
 
-# ---------------- 数据库检查 ----------------
-if python3 - <<'PY' 2>/dev/null
-import os
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ai_django.settings")
-import django
-django.setup()
-from django.db import connection
-connection.ensure_connection()
-PY
-then
-  echo "数据库: MySQL ai_django"
-  python3 manage.py migrate --noinput
-else
-  echo "警告: MySQL 连接失败(ai_django 库或账号未就绪），临时使用本地 SQLite 启动。"
-  echo "      修复 MySQL 后重新运行本脚本即可切回。"
-  export DJANGO_USE_SQLITE=1
-  python3 manage.py migrate --noinput
-fi
+# ---------------- 数据库 ----------------
+# 聊天记录统一存到 SQLite 文件，位置即“数据库”文件夹
+export SQLITE_PATH="${SQLITE_PATH:-$HOME/Documents/项目集/cloud computing/数据库/chat.db}"
+export DJANGO_USE_SQLITE=1
+mkdir -p "$(dirname "$SQLITE_PATH")"
+echo "数据库: $SQLITE_PATH"
+python3 manage.py migrate --noinput
 
 echo "启动: http://${HOST}:${PORT}/"
 exec python3 manage.py runserver "${HOST}:${PORT}"

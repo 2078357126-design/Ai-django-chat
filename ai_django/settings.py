@@ -110,11 +110,16 @@ DATABASES = {
 
 # 本地 start.sh 检测到 MySQL 不可用会设 DJANGO_USE_SQLITE=1；
 # Render 免费实例没有 MySQL，自动使用 SQLite。
+# SQLITE_PATH 可指定数据库文件位置，聊天数据就存在该文件里。
 if os.environ.get('DJANGO_USE_SQLITE') == '1' or os.environ.get('RENDER'):
+    sqlite_path = Path(
+        os.environ.get('SQLITE_PATH') or (BASE_DIR / 'db.sqlite3')
+    ).expanduser()
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': sqlite_path,
         }
     }
 

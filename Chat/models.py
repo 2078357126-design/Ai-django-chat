@@ -5,6 +5,8 @@ class ChatRecord(models.Model):
     """一次完整的对话记录（用户提问 + 模型回复）。"""
 
     session_id = models.CharField('会话标识', max_length=64, blank=True, db_index=True)
+    visitor_id = models.CharField('访客标识', max_length=64, blank=True, db_index=True)
+    ip_address = models.CharField('访问 IP', max_length=64, blank=True)
     user_message = models.TextField('用户消息')
     ai_response = models.TextField('AI 回复')
     model_name = models.CharField('模型名称', max_length=100, blank=True)

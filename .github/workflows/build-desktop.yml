@@ -1,0 +1,80 @@
+name: build-desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 打包
+        run: pyinstaller --noconfirm --clean ai_chat.spec
+
+      - name: 压缩（macOS）
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent AIChat.app ../AIChat-macos.zip
+
+      - name: 压缩（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/AIChat -DestinationPath AIChat-windows.zip
+
+      - name: 压缩（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          zip -qry ../AIChat-linux.zip AIChat
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIChat-${{ runner.os }}
+          path: AIChat-*.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/AIChat-*.zip
+          body: |
+            桌面版安装包（解压即用，首次打开在页面填写 DeepSeek API Key）。
+
+            - macOS：解压后双击 AIChat.app（首次可能需右键 → 打开）
+            - Windows：解压后运行 AIChat\AIChat.exe
+            - Linux：解压后运行 AIChat/AIChat
+
+            手机端请使用网页版 PWA。

@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI 对话</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="theme-color" content="#3370ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="AI 对话">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -153,6 +160,33 @@
     cursor: pointer;
   }
   #send:disabled { background: #a8c0ff; cursor: default; }
+  .setup {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px;
+    background: #fff7e6;
+    border-bottom: 1px solid #ffe0a3;
+  }
+  .setup input {
+    flex: 1;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid #d9dde3;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+  }
+  .setup button {
+    height: 36px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 6px;
+    background: #3370ff;
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .setup button:disabled { background: #a8c0ff; cursor: default; }
 </style>
 </head>
 <body>
@@ -161,6 +195,12 @@
     <h1>AI 对话</h1>
     <span class="hint">悬停自己的消息可修改，改完重新生成</span>
   </header>
+  {% if not has_api_key %}
+  <div class="setup">
+    <input id="key-input" type="password" placeholder="首次使用，请粘贴 DeepSeek API Key（sk-...）">
+    <button id="key-save" type="button">保存</button>
+  </div>
+  {% endif %}
   <main id="messages">
     <div class="tip">输入内容开始对话，Enter 发送，Shift+Enter 换行。</div>
   </main>
@@ -175,6 +215,15 @@
   const sendBtn = document.getElementById('send');
   const messages = document.getElementById('messages');
   const sessionId = 'web-' + Math.random().toString(36).slice(2, 10);
+
+  // 访客标识：同一浏览器长期保持不变，便于在数据库里区分是谁在用
+  let visitorId = localStorage.getItem('chat_visitor_id');
+  if (!visitorId) {
+    visitorId = 'v-' + (window.crypto && crypto.randomUUID
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10));
+    localStorage.setItem('chat_visitor_id', visitorId);
+  }
 
   function scrollToBottom() {
     messages.scrollTop = messages.scrollHeight;
@@ -312,7 +361,7 @@
       const res = await fetch('/api/chat/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, session_id: sessionId })
+        body: JSON.stringify({ message: text, session_id: sessionId, visitor_id: visitorId })
       });
       const data = await res.json().catch(function () { return {}; });
       if (res.ok) {
@@ -340,6 +389,39 @@
       form.requestSubmit();
     }
   });
+
+  // 首次使用：在页面上填写 API Key
+  const keySave = document.getElementById('key-save');
+  if (keySave) {
+    keySave.addEventListener('click', async function () {
+      const input = document.getElementById('key-input');
+      const value = input.value.trim();
+      if (!value) { input.focus(); return; }
+      keySave.disabled = true;
+      keySave.textContent = '保存中…';
+      try {
+        const res = await fetch('/api/config/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: value })
+        });
+        if (res.ok) {
+          location.reload();
+          return;
+        }
+      } catch (err) { /* 忽略，下面统一提示 */ }
+      keySave.disabled = false;
+      keySave.textContent = '保存';
+      alert('保存失败，请检查后重试');
+    });
+  }
+
+  // 注册 Service Worker，使浏览器可“安装”本页为应用
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js').catch(function () {});
+    });
+  }
 </script>
 </body>
 </html>

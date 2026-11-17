@@ -1,7 +1,9 @@
 import json
+import os
+from pathlib import Path
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -12,7 +14,118 @@ from .models import ChatRecord
 
 def chat_page(request):
     """GET / 或 /chat/：浏览器聊天页面，页面内调用 POST /api/chat/。"""
-    return render(request, 'chat/chat.html')
+    return render(request, 'chat/chat.html', {'has_api_key': bool(settings.OPENAI_API_KEY)})
+
+
+@csrf_exempt
+def save_config(request):
+    """POST /api/config/：保存 API Key，供桌面版首次配置使用。"""
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持 POST'}, status=405)
+
+    try:
+        payload = json.loads(request.body or b'{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '请求体必须是合法的 JSON'}, status=400)
+
+    api_key = (payload.get('api_key') or '').strip()
+    if not api_key:
+        return JsonResponse({'error': 'api_key 不能为空'}, status=400)
+
+    settings.OPENAI_API_KEY = api_key
+
+    # 桌面版把配置写在数据库同目录，下次启动自动读取
+    sqlite_path = os.environ.get('SQLITE_PATH')
+    if sqlite_path:
+        config_path = Path(sqlite_path).parent / 'config.env'
+        config_path.write_text(
+            'OPENAI_API_KEY={}\nOPENAI_BASE_URL={}\nOPENAI_MODEL={}\n'.format(
+                api_key,
+                settings.OPENAI_BASE_URL or 'https://api.deepseek.com',
+                settings.OPENAI_MODEL,
+            ),
+            encoding='utf-8',
+        )
+
+    return JsonResponse({'ok': True})
+
+
+# ---------------- PWA：让 PC 和手机都能“安装”成应用 ----------------
+
+_SERVICE_WORKER_JS = """
+const CACHE = 'ai-chat-v1';
+
+self.addEventListener('install', function (event) {
+  event.waitUntil(
+    caches.open(CACHE).then(function (cache) {
+      return cache.add('/');
+    }).catch(function () {})
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', function (event) {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', function (event) {
+  if (event.request.method !== 'GET') return;
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(function () {
+        return caches.match('/');
+      })
+    );
+  }
+});
+"""
+
+_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="112" fill="#3370ff"/>
+<rect x="104" y="136" width="304" height="200" rx="48" fill="#ffffff"/>
+<path d="M184 336l-36 56 92-56z" fill="#ffffff"/>
+<circle cx="200" cy="236" r="16" fill="#3370ff"/>
+<circle cx="256" cy="236" r="16" fill="#3370ff"/>
+<circle cx="312" cy="236" r="16" fill="#3370ff"/>
+</svg>
+"""
+
+
+def pwa_manifest(request):
+    """PWA 清单文件。"""
+    return JsonResponse(
+        {
+            'name': 'AI 对话',
+            'short_name': 'AI 对话',
+            'start_url': '/',
+            'scope': '/',
+            'display': 'standalone',
+            'background_color': '#ffffff',
+            'theme_color': '#3370ff',
+            'lang': 'zh-CN',
+            'icons': [
+                {
+                    'src': '/icon.svg',
+                    'sizes': 'any',
+                    'type': 'image/svg+xml',
+                    'purpose': 'any maskable',
+                }
+            ],
+        },
+        content_type='application/manifest+json',
+    )
+
+
+def pwa_service_worker(request):
+    """Service Worker 脚本，需从根路径提供。"""
+    response = HttpResponse(_SERVICE_WORKER_JS, content_type='application/javascript')
+    response['Service-Worker-Allowed'] = '/'
+    return response
+
+
+def pwa_icon(request):
+    """应用图标。"""
+    return HttpResponse(_ICON_SVG, content_type='image/svg+xml')
 
 
 def _generate_reply(message, model):
@@ -26,6 +139,14 @@ def _generate_reply(message, model):
         messages=[{'role': 'user', 'content': message}],
     )
     return completion.choices[0].message.content or ''
+
+
+def _client_ip(request):
+    """取访问者 IP，兼容反向代理。"""
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()[:64]
+    return request.META.get('REMOTE_ADDR', '')[:64]
 
 
 def _read_payload(request):
@@ -69,6 +190,8 @@ def chat(request):
 
     record = ChatRecord.objects.create(
         session_id=session_id,
+        visitor_id=(payload.get('visitor_id') or '').strip()[:64],
+        ip_address=_client_ip(request),
         user_message=message,
         ai_response=reply,
         model_name=model,

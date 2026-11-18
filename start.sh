@@ -38,8 +38,12 @@ export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://api.deepseek.com}"
 export OPENAI_MODEL="${OPENAI_MODEL:-deepseek-flash}"
 
-HOST="${HOST:-127.0.0.1}"
+HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
+
+# 局域网 IP：手机 App / 网页版需要用它访问
+LAN_IP="${LAN_IP:-$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')}"
+export DJANGO_ALLOWED_HOSTS="127.0.0.1,localhost${LAN_IP:+,$LAN_IP}"
 
 if [ -z "$OPENAI_API_KEY" ]; then
   echo "警告: 没有可用的 OPENAI_API_KEY，调用接口会认证失败。重新运行本脚本可粘贴 Key。"
@@ -59,5 +63,8 @@ mkdir -p "$(dirname "$SQLITE_PATH")"
 echo "数据库: $SQLITE_PATH"
 python3 manage.py migrate --noinput
 
-echo "启动: http://${HOST}:${PORT}/"
+echo "本机访问: http://127.0.0.1:${PORT}/"
+if [ -n "$LAN_IP" ]; then
+  echo "手机访问: http://${LAN_IP}:${PORT}/   (手机需连同一 WiFi)"
+fi
 exec python3 manage.py runserver "${HOST}:${PORT}"

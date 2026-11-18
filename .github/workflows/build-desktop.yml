@@ -112,20 +112,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
+
+      - name: 列出产物
+        run: find artifacts -type f | sort
 
       - name: 发布 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/AIChat-*.zip
-            artifacts/AIChat-android.apk
-          body: |
-            安装包（首次打开填写自己的 DeepSeek API Key）。
-
-            - Mac（Intel 芯片）：AIChat-macos-intel.zip
-            - Mac（M1/M2/M3 芯片）：AIChat-macos-arm64.zip
-            - Windows：AIChat-windows.zip，解压后运行 AIChat\AIChat.exe
-            - Linux：AIChat-linux.zip，解压后运行 AIChat/AIChat
-            - 安卓：AIChat-android.apk，安装后填 Key 直接聊天，不需要电脑
-            - iPhone：暂不支持
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "AI云 桌面与移动端安装包"
+          files=$(find artifacts -type f \( -name '*.zip' -o -name '*.apk' \))
+          echo "上传文件：$files"
+          gh release upload "${GITHUB_REF_NAME}" $files --clobber

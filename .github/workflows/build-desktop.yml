@@ -14,7 +14,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-13
+            artifact: AIChat-macos-intel
+          - os: macos-14
+            artifact: AIChat-macos-arm64
+          - os: windows-latest
+            artifact: AIChat-windows
+          - os: ubuntu-latest
+            artifact: AIChat-linux
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -47,25 +55,25 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           cd dist
-          ditto -c -k --sequesterRsrc --keepParent AIChat.app ../AIChat-macos.zip
+          ditto -c -k --sequesterRsrc --keepParent AIChat.app ../${{ matrix.artifact }}.zip
 
       - name: 压缩（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/AIChat -DestinationPath AIChat-windows.zip
+          Compress-Archive -Path dist/AIChat -DestinationPath ${{ matrix.artifact }}.zip
 
       - name: 压缩（Linux）
         if: runner.os == 'Linux'
         run: |
           cd dist
-          zip -qry ../AIChat-linux.zip AIChat
+          zip -qry ../${{ matrix.artifact }}.zip AIChat
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: AIChat-${{ runner.os }}
-          path: AIChat-*.zip
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
 
   android:
     runs-on: ubuntu-latest
@@ -113,10 +121,11 @@ jobs:
             artifacts/AIChat-*.zip
             artifacts/AIChat-android.apk
           body: |
-            安装包（解压即用，首次打开在页面填写 DeepSeek API Key）。
+            安装包（首次打开填写自己的 DeepSeek API Key）。
 
-            - macOS：解压后双击 AIChat.app（首次需右键 → 打开）
-            - Windows：解压后运行 AIChat\AIChat.exe
-            - Linux：解压后运行 AIChat/AIChat
-            - Android：安装 AIChat-android.apk，首次打开填写电脑地址（手机与电脑需同一 WiFi）
-            - iPhone：用 Safari 打开网页版，添加到主屏幕
+            - Mac（Intel 芯片）：AIChat-macos-intel.zip
+            - Mac（M1/M2/M3 芯片）：AIChat-macos-arm64.zip
+            - Windows：AIChat-windows.zip，解压后运行 AIChat\AIChat.exe
+            - Linux：AIChat-linux.zip，解压后运行 AIChat/AIChat
+            - 安卓：AIChat-android.apk，安装后填 Key 直接聊天，不需要电脑
+            - iPhone：暂不支持

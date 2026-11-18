@@ -26,14 +26,28 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: 准备固定签名
+        run: |
+          if [ ! -f android/keystore.jks ]; then
+            keytool -genkeypair -v -keystore android/keystore.jks -alias aichat \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass aichat2026 -keypass aichat2026 \
+              -dname "CN=AI Cloud, OU=Dev, O=AI, L=Beijing, S=Beijing, C=CN"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add android/keystore.jks
+            git commit -m "chore: 添加固定安卓签名"
+            git push
+          fi
+
       - name: 构建 APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleRelease --no-daemon
 
       - name: 提交 APK
         run: |
           mkdir -p dist-android
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist-android/AIChat-android.apk
+          cp android/app/build/outputs/apk/release/app-release.apk dist-android/AIChat-android.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add dist-android/AIChat-android.apk

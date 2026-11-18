@@ -56,8 +56,37 @@ jobs:
           name: AIChat-${{ runner.os }}
           path: AIChat-*.zip
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: 构建 APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: 整理产物
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/AIChat-android.apk
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIChat-Android
+          path: out/AIChat-android.apk
+
   release:
-    needs: build
+    needs: [build, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -69,12 +98,14 @@ jobs:
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/AIChat-*.zip
+          files: |
+            artifacts/AIChat-*.zip
+            artifacts/AIChat-android.apk
           body: |
-            桌面版安装包（解压即用，首次打开在页面填写 DeepSeek API Key）。
+            安装包（解压即用，首次打开在页面填写 DeepSeek API Key）。
 
-            - macOS：解压后双击 AIChat.app（首次可能需右键 → 打开）
+            - macOS：解压后双击 AIChat.app（首次需右键 → 打开）
             - Windows：解压后运行 AIChat\AIChat.exe
             - Linux：解压后运行 AIChat/AIChat
-
-            手机端请使用网页版 PWA。
+            - Android：安装 AIChat-android.apk，首次打开填写电脑地址（手机与电脑需同一 WiFi）
+            - iPhone：用 Safari 打开网页版，添加到主屏幕

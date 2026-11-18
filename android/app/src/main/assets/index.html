@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI 对话</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f5f6f8;
+    color: #1f2329;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 14px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e8eaed;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header button {
+    border: none;
+    background: none;
+    color: #8a9099;
+    font-size: 13px;
+    padding: 4px 6px;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tip { color: #8a9099; font-size: 13px; text-align: center; margin-top: 40px; }
+  .msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: #3370ff;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: #fff;
+    border: 1px solid #e8eaed;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.error {
+    align-self: flex-start;
+    background: #fff1f0;
+    color: #d4380d;
+    border: 1px solid #ffccc7;
+  }
+  .msg.pending { color: #8a9099; }
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: #fff;
+    border-top: 1px solid #e8eaed;
+  }
+  #input {
+    flex: 1;
+    resize: none;
+    height: 42px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    border: 1px solid #d9dde3;
+    border-radius: 8px;
+    outline: none;
+  }
+  #input:focus { border-color: #3370ff; }
+  #send {
+    padding: 0 18px;
+    height: 42px;
+    border: none;
+    border-radius: 8px;
+    background: #3370ff;
+    color: #fff;
+    font-size: 14px;
+  }
+  #send:disabled { background: #a8c0ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 对话</h1>
+  <button id="reset" type="button">更换 Key</button>
+</header>
+
+<main id="messages">
+  <div class="tip">输入内容开始对话</div>
+</main>
+
+<form id="form">
+  <textarea id="input" placeholder="说点什么…"></textarea>
+  <button id="send" type="submit">发送</button>
+</form>
+
+<script>
+  var messagesEl = document.getElementById('messages');
+  var form = document.getElementById('form');
+  var input = document.getElementById('input');
+  var sendBtn = document.getElementById('send');
+  var pending = {};
+
+  window.__onResult = function (id, jsonText) {
+    var cb = pending[id];
+    if (!cb) return;
+    delete pending[id];
+    var data;
+    try { data = JSON.parse(jsonText); } catch (e) { data = { error: '返回解析失败' }; }
+    cb(data);
+  };
+
+  function callChat(text) {
+    return new Promise(function (resolve) {
+      var id = 'c' + Date.now() + Math.floor(Math.random() * 1000);
+      pending[id] = resolve;
+      try {
+        Android.chat(text, id);
+      } catch (e) {
+        delete pending[id];
+        resolve({ error: '无法连接应用内核' });
+      }
+    });
+  }
+
+  function addBubble(role, text) {
+    var el = document.createElement('div');
+    el.className = 'msg ' + role;
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = input.value.trim();
+    if (!text || sendBtn.disabled) return;
+
+    var tip = messagesEl.querySelector('.tip');
+    if (tip) tip.remove();
+
+    input.value = '';
+    addBubble('user', text);
+    var bot = addBubble('bot pending', '…');
+    sendBtn.disabled = true;
+    sendBtn.textContent = '思考中…';
+
+    callChat(text).then(function (data) {
+      bot.classList.remove('pending');
+      if (data && data.reply) {
+        bot.textContent = data.reply;
+      } else {
+        bot.classList.add('error');
+        bot.textContent = (data && data.error) || '请求失败';
+      }
+      sendBtn.disabled = false;
+      sendBtn.textContent = '发送';
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  document.getElementById('reset').addEventListener('click', function () {
+    if (confirm('要更换 API Key 吗？')) {
+      Android.resetKey();
+    }
+  });
+</script>
+</body>
+</html>

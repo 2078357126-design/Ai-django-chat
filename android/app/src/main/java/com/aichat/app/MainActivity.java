@@ -1,135 +1,157 @@
 package com.aichat.app;
 
 import android.app.Activity;
-import android.content.SharedPreferences;
-import android.graphics.Color;
 import android.os.Bundle;
-import android.text.InputType;
-import android.view.KeyEvent;
-import android.view.ViewGroup;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Properties;
 
 /**
- * 聊天客户端：内嵌浏览器加载电脑上运行的 Django 服务。
- * 首次使用填写电脑地址，保存在本地，之后直接进入聊天界面。
+ * 独立的手机聊天客户端：直接调用 AI 接口，不依赖电脑。
+ * API Key 在打包时预置到 app-config.properties。
  */
 public class MainActivity extends Activity {
 
-    private static final String PREFS = "aichat";
-    private static final String KEY_URL = "server_url";
-    private static final String DEFAULT_URL = "http://10.122.73.9:8000/";
-
     private WebView webView;
+    private String apiKey = "";
+    private String baseUrl = "https://api.deepseek.com";
+    private String model = "deepseek-flash";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String url = prefs.getString(KEY_URL, "");
-        if (url == null || url.isEmpty()) {
-            showSetup();
-        } else {
-            openChat(url);
-        }
-    }
+        loadConfig();
 
-    private LinearLayout.LayoutParams fullWidth() {
-        return new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
+        webView = new WebView(this);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        webView.setWebViewClient(new WebViewClient());
+        webView.addJavascriptInterface(new Bridge(), "Android");
 
-    private void showSetup() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(60, 200, 60, 60);
-
-        TextView title = new TextView(this);
-        title.setText("连接电脑上的 AI 对话");
-        title.setTextSize(22);
-        title.setTextColor(Color.parseColor("#1F2329"));
-        layout.addView(title, fullWidth());
-
-        TextView hint = new TextView(this);
-        hint.setText("手机需与运行服务的电脑连接同一 WiFi。\n填写电脑地址，例如 http://192.168.1.5:8000/");
-        hint.setTextSize(13);
-        hint.setTextColor(Color.parseColor("#8A9099"));
-        hint.setPadding(0, 20, 0, 28);
-        layout.addView(hint, fullWidth());
-
-        EditText input = new EditText(this);
-        input.setHint(DEFAULT_URL);
-        input.setText(DEFAULT_URL);
-        input.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        layout.addView(input, fullWidth());
-
-        Button connect = new Button(this);
-        connect.setText("连接");
-        connect.setOnClickListener(v -> {
-            String value = input.getText().toString().trim();
-            if (value.isEmpty()) {
-                input.setError("请填写地址");
-                return;
-            }
-            if (!value.startsWith("http://") && !value.startsWith("https://")) {
-                value = "http://" + value;
-            }
-            if (!value.endsWith("/")) {
-                value = value + "/";
-            }
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_URL, value).apply();
-            openChat(value);
-        });
-        layout.addView(connect, fullWidth());
-
-        setContentView(layout);
-    }
-
-    private void openChat(String url) {
-        if (webView == null) {
-            webView = new WebView(this);
-            WebSettings settings = webView.getSettings();
-            settings.setJavaScriptEnabled(true);
-            settings.setDomStorageEnabled(true);
-            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-            webView.setWebViewClient(new WebViewClient() {
-                @Override
-                public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                    if (request.isForMainFrame()) {
-                        runOnUiThread(MainActivity.this::handleConnectFailure);
-                    }
-                }
-            });
-        }
         setContentView(webView);
-        webView.loadUrl(url);
+        webView.loadUrl("file:///android_asset/mobile.html");
     }
 
-    private void handleConnectFailure() {
-        Toast.makeText(this, "连接失败：请确认电脑已启动服务，且手机与电脑在同一 WiFi", Toast.LENGTH_LONG).show();
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_URL).apply();
-        if (webView != null) {
-            webView.destroy();
-            webView = null;
+    private void loadConfig() {
+        Properties props = new Properties();
+        try (InputStream is = getAssets().open("app-config.properties")) {
+            props.load(is);
+        } catch (Exception ignored) {
+            // 没有配置文件时保持默认值，页面会提示未配置 Key
         }
-        showSetup();
+        apiKey = props.getProperty("OPENAI_API_KEY", "").trim();
+        baseUrl = props.getProperty("OPENAI_BASE_URL", "https://api.deepseek.com").trim();
+        model = props.getProperty("OPENAI_MODEL", "deepseek-flash").trim();
+    }
+
+    private class Bridge {
+        @JavascriptInterface
+        public void chat(String text, int requestId) {
+            new Thread(() -> {
+                try {
+                    callJs(requestId, request(text), null);
+                } catch (Exception e) {
+                    callJs(requestId, null, readableError(e));
+                }
+            }).start();
+        }
+    }
+
+    private void callJs(int id, String reply, String error) {
+        String script = "window.__onReply(" + id + ","
+                + (reply == null ? "null" : JSONObject.quote(reply)) + ","
+                + (error == null ? "null" : JSONObject.quote(error)) + ")";
+        runOnUiThread(() -> webView.evaluateJavascript(script, null));
+    }
+
+    private String readableError(Exception e) {
+        String message = e.getMessage();
+        if (message == null || message.isEmpty()) {
+            message = e.getClass().getSimpleName();
+        }
+        if (message.length() > 200) {
+            message = message.substring(0, 200) + "…";
+        }
+        return "请求失败：" + message;
+    }
+
+    private String request(String userMessage) throws Exception {
+        if (apiKey.isEmpty()) {
+            throw new IllegalStateException("安装包未配置 API Key");
+        }
+
+        String endpoint = baseUrl.replaceAll("/+$", "") + "/chat/completions";
+
+        JSONObject message = new JSONObject();
+        message.put("role", "user");
+        message.put("content", userMessage);
+
+        JSONArray messagesArray = new JSONArray();
+        messagesArray.put(message);
+
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("messages", messagesArray);
+
+        HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(20000);
+        connection.setReadTimeout(90000);
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+
+        try (OutputStream out = connection.getOutputStream()) {
+            out.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        }
+
+        int code = connection.getResponseCode();
+        InputStream stream = (code >= 200 && code < 300)
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+
+        StringBuilder text = new StringBuilder();
+        if (stream != null) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    text.append(line);
+                }
+            }
+        }
+
+        if (code < 200 || code >= 300) {
+            throw new IllegalStateException("HTTP " + code + " " + text);
+        }
+
+        JSONObject json = new JSONObject(text.toString());
+        return json.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .optString("content", "");
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView != null && webView.canGoBack()) {
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
             webView.goBack();
-            return true;
+        } else {
+            super.onBackPressed();
         }
-        return super.onKeyDown(keyCode, event);
     }
 }

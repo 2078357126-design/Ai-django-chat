@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>AI 对话</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f5f6f8;
+    color: #1f2329;
+    display: flex;
+    flex-direction: column;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .tip { color: #8a9099; font-size: 13px; text-align: center; margin-top: 40px; }
+  .turn { display: flex; flex-direction: column; gap: 8px; }
+  .msg {
+    max-width: 82%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: #3370ff;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+    position: relative;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: #fff;
+    border: 1px solid #e8eaed;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.error { background: #fff1f0; color: #d4380d; border: 1px solid #ffccc7; }
+  .msg.pending { color: #8a9099; }
+  .msg.user .edit {
+    position: absolute;
+    left: -2px;
+    bottom: -20px;
+    border: none;
+    background: none;
+    color: #8a9099;
+    font-size: 12px;
+    padding: 0;
+  }
+  .msg.user .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  .msg.user.editing {
+    width: 82%;
+    max-width: 82%;
+    background: #fff;
+    border: 1px solid #d9dde3;
+    color: #1f2329;
+  }
+  .msg.user.editing textarea {
+    width: 100%;
+    min-height: 64px;
+    padding: 6px 8px;
+    border: 1px solid #d9dde3;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 15px;
+    resize: vertical;
+    outline: none;
+  }
+  .msg.user .actions button {
+    height: 32px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .btn-save { background: #3370ff; color: #fff; }
+  .btn-cancel { background: #f2f3f5; color: #1f2329; }
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid #e8eaed;
+    background: #fff;
+  }
+  #input {
+    flex: 1;
+    resize: none;
+    height: 42px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 15px;
+    border: 1px solid #d9dde3;
+    border-radius: 8px;
+    outline: none;
+  }
+  #send {
+    padding: 0 18px;
+    height: 42px;
+    border: none;
+    border-radius: 8px;
+    background: #3370ff;
+    color: #fff;
+    font-size: 15px;
+  }
+  #send:disabled { background: #a8c0ff; }
+</style>
+</head>
+<body>
+<main id="messages">
+  <div class="tip">输入内容开始对话</div>
+</main>
+<form id="form">
+  <textarea id="input" placeholder="说点什么…"></textarea>
+  <button id="send" type="submit">发送</button>
+</form>
+<script>
+  var form = document.getElementById('form');
+  var input = document.getElementById('input');
+  var sendBtn = document.getElementById('send');
+  var messages = document.getElementById('messages');
+  var STORE_KEY = 'aichat_history';
+  var records = [];
+  var pending = {};
+  var seq = 1;
+
+  // 载入本地历史
+  try {
+    records = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+  } catch (e) { records = []; }
+
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(records)); } catch (e) {}
+  }
+
+  function scrollToBottom() { messages.scrollTop = messages.scrollHeight; }
+
+  function render(rec, index) {
+    var turn = document.createElement('div');
+    turn.className = 'turn';
+
+    var user = document.createElement('div');
+    user.className = 'msg user';
+    if (rec.editing) {
+      user.classList.add('editing');
+      var ta = document.createElement('textarea');
+      ta.className = 'editor';
+      ta.value = rec.text;
+      var actions = document.createElement('div');
+      actions.className = 'actions';
+      var saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn-save';
+      saveBtn.textContent = '保存并重新生成';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn-cancel';
+      cancelBtn.textContent = '取消';
+      actions.append(saveBtn, cancelBtn);
+      user.append(ta, actions);
+    } else {
+      user.textContent = rec.text;
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'edit';
+      edit.textContent = '编辑';
+      user.appendChild(edit);
+    }
+
+    var bot = document.createElement('div');
+    bot.className = 'msg bot';
+    if (rec.error) bot.classList.add('error');
+    if (rec.pending) bot.classList.add('pending');
+    bot.textContent = rec.reply === undefined ? '…' : rec.reply;
+
+    turn.append(user, bot);
+    turn.dataset.index = index;
+    return turn;
+  }
+
+  function renderAll() {
+    messages.innerHTML = '';
+    if (!records.length) {
+      var tip = document.createElement('div');
+      tip.className = 'tip';
+      tip.textContent = '输入内容开始对话';
+      messages.appendChild(tip);
+      return;
+    }
+    records.forEach(function (rec, i) { messages.appendChild(render(rec, i)); });
+    scrollToBottom();
+  }
+
+  function setBusy(busy) {
+    sendBtn.disabled = busy;
+    sendBtn.textContent = busy ? '思考中…' : '发送';
+  }
+
+  // 由原生端回调
+  window.__onReply = function (id, reply, error) {
+    var rec = pending[id];
+    if (!rec) return;
+    delete pending[id];
+    if (error) {
+      rec.error = true;
+      rec.reply = error;
+    } else {
+      rec.reply = reply || '(空回复)';
+    }
+    save();
+    renderAll();
+    if (Object.keys(pending).length === 0) setBusy(false);
+  };
+
+  function ask(text, index) {
+    var rec = records[index];
+    rec.pending = true;
+    rec.error = false;
+    rec.reply = '…';
+    renderAll();
+    setBusy(true);
+
+    var id = seq++;
+    pending[id] = rec;
+    if (window.Android && window.Android.chat) {
+      window.Android.chat(text, id);
+    } else {
+      window.__onReply(id, null, '请在手机上运行本应用');
+    }
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = input.value.trim();
+    if (!text || sendBtn.disabled) return;
+    input.value = '';
+    records.push({ text: text, reply: '…', pending: true, error: false });
+    save();
+    renderAll();
+    setBusy(true);
+    ask(text, records.length - 1);
+  });
+
+  messages.addEventListener('click', function (e) {
+    var turn = e.target.closest('.turn');
+    if (!turn) return;
+    var index = Number(turn.dataset.index);
+    var rec = records[index];
+    if (!rec) return;
+
+    if (e.target.classList.contains('edit')) {
+      rec.editing = true;
+      renderAll();
+      var ta = messages.querySelector('.turn[data-index="' + index + '"] .editor');
+      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    } else if (e.target.classList.contains('btn-cancel')) {
+      rec.editing = false;
+      renderAll();
+    } else if (e.target.classList.contains('btn-save')) {
+      var box = messages.querySelector('.turn[data-index="' + index + '"] .editor');
+      var value = box ? box.value.trim() : '';
+      if (!value) return;
+      rec.text = value;
+      rec.editing = false;
+      save();
+      renderAll();
+      ask(value, index);
+    }
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  renderAll();
+</script>
+</body>
+</html>

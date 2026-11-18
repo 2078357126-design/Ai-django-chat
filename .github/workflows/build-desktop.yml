@@ -81,6 +81,14 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: 写入预置 Key
+        shell: bash
+        env:
+          PRESET_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          mkdir -p android/app/src/main/assets
+          printf 'OPENAI_API_KEY=%s\nOPENAI_BASE_URL=https://api.deepseek.com\nOPENAI_MODEL=deepseek-flash\n' "$PRESET_KEY" > android/app/src/main/assets/app-config.properties
+
       - name: 构建 APK
         working-directory: android
         run: gradle assembleDebug --no-daemon --stacktrace

@@ -81,12 +81,21 @@ self.addEventListener('fetch', function (event) {
 """
 
 _ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-<rect width="512" height="512" rx="112" fill="#3370ff"/>
-<rect x="104" y="136" width="304" height="200" rx="48" fill="#ffffff"/>
-<path d="M184 336l-36 56 92-56z" fill="#ffffff"/>
-<circle cx="200" cy="236" r="16" fill="#3370ff"/>
-<circle cx="256" cy="236" r="16" fill="#3370ff"/>
-<circle cx="312" cy="236" r="16" fill="#3370ff"/>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#4F7CFF"/><stop offset="1" stop-color="#8B5CF6"/>
+</linearGradient></defs>
+<rect width="512" height="512" rx="116" fill="url(#bg)"/>
+<g fill="#ffffff">
+<circle cx="186" cy="288" r="56"/>
+<circle cx="262" cy="246" r="80"/>
+<circle cx="340" cy="290" r="54"/>
+<rect x="130" y="288" width="256" height="58" rx="29"/>
+</g>
+<g fill="#4F7CFF">
+<circle cx="212" cy="300" r="14"/>
+<circle cx="262" cy="300" r="14"/>
+<circle cx="312" cy="300" r="14"/>
+</g>
 </svg>
 """
 
@@ -95,8 +104,8 @@ def pwa_manifest(request):
     """PWA 清单文件。"""
     return JsonResponse(
         {
-            'name': 'AI 对话',
-            'short_name': 'AI 对话',
+            'name': 'AI云',
+            'short_name': 'AI云',
             'start_url': '/',
             'scope': '/',
             'display': 'standalone',

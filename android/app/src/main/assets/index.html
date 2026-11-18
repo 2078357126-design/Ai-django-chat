@@ -40,6 +40,11 @@
     -webkit-overflow-scrolling: touch;
   }
   .tip { color: #8a9099; font-size: 13px; text-align: center; margin-top: 40px; }
+  .turn {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
   .msg {
     max-width: 80%;
     padding: 10px 14px;
@@ -51,10 +56,56 @@
   }
   .msg.user {
     align-self: flex-end;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     background: #3370ff;
     color: #fff;
     border-bottom-right-radius: 4px;
   }
+  .msg.user .edit {
+    align-self: flex-end;
+    margin-top: 2px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: rgba(255, 255, 255, .7);
+    font-size: 11px;
+  }
+  .msg.user.editing {
+    width: 80%;
+    max-width: 80%;
+    background: #fff;
+    border: 1px solid #d9dde3;
+    color: #1f2329;
+  }
+  .msg.user.editing textarea {
+    width: 100%;
+    min-height: 52px;
+    padding: 6px 8px;
+    border: 1px solid #d9dde3;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 14px;
+    resize: vertical;
+    outline: none;
+  }
+  .msg.user.editing textarea:focus { border-color: #3370ff; }
+  .msg.user .actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+  .msg.user .actions button {
+    height: 28px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .btn-save { background: #3370ff; color: #fff; }
+  .btn-cancel { background: #f2f3f5; color: #1f2329; }
   .msg.bot {
     align-self: flex-start;
     background: #fff;
@@ -143,14 +194,103 @@
     });
   }
 
-  function addBubble(role, text) {
-    var el = document.createElement('div');
-    el.className = 'msg ' + role;
-    el.textContent = text;
-    messagesEl.appendChild(el);
+  function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
-    return el;
   }
+
+  function renderTurn(t) {
+    t.user.innerHTML = '';
+    t.user.classList.toggle('editing', t.editing);
+
+    if (t.editing) {
+      var ta = document.createElement('textarea');
+      ta.className = 'editor';
+      ta.value = t.text;
+
+      var actions = document.createElement('div');
+      actions.className = 'actions';
+      var save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn-save';
+      save.textContent = '保存并重新生成';
+      var cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn-cancel';
+      cancel.textContent = '取消';
+      actions.append(save, cancel);
+      t.user.append(ta, actions);
+      setTimeout(function () {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }, 0);
+    } else {
+      var span = document.createElement('span');
+      span.textContent = t.text;
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'edit';
+      edit.textContent = '修改';
+      t.user.append(span, edit);
+    }
+  }
+
+  function newTurn(text) {
+    var el = document.createElement('div');
+    el.className = 'turn';
+
+    var user = document.createElement('div');
+    user.className = 'msg user';
+
+    var bot = document.createElement('div');
+    bot.className = 'msg bot pending';
+    bot.textContent = '…';
+
+    el.append(user, bot);
+    messagesEl.appendChild(el);
+
+    var t = { user: user, bot: bot, text: text, editing: false };
+    el._turn = t;
+    renderTurn(t);
+    scrollToBottom();
+    return t;
+  }
+
+  function ask(t) {
+    t.bot.className = 'msg bot pending';
+    t.bot.textContent = '…';
+    return callChat(t.text).then(function (data) {
+      t.bot.classList.remove('pending');
+      if (data && data.reply) {
+        t.bot.textContent = data.reply;
+      } else {
+        t.bot.classList.add('error');
+        t.bot.textContent = (data && data.error) || '请求失败';
+      }
+      scrollToBottom();
+    });
+  }
+
+  messagesEl.addEventListener('click', function (e) {
+    var el = e.target.closest('.turn');
+    if (!el || !el._turn) return;
+    var t = el._turn;
+
+    if (e.target.closest('.edit')) {
+      t.editing = true;
+      renderTurn(t);
+    } else if (e.target.closest('.btn-cancel')) {
+      t.editing = false;
+      renderTurn(t);
+    } else if (e.target.closest('.btn-save')) {
+      var ta = t.user.querySelector('.editor');
+      var value = ta.value.trim();
+      if (!value) { ta.focus(); return; }
+      t.text = value;
+      t.editing = false;
+      renderTurn(t);
+      ask(t);
+    }
+  });
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -161,22 +301,13 @@
     if (tip) tip.remove();
 
     input.value = '';
-    addBubble('user', text);
-    var bot = addBubble('bot pending', '…');
+    var t = newTurn(text);
     sendBtn.disabled = true;
     sendBtn.textContent = '思考中…';
 
-    callChat(text).then(function (data) {
-      bot.classList.remove('pending');
-      if (data && data.reply) {
-        bot.textContent = data.reply;
-      } else {
-        bot.classList.add('error');
-        bot.textContent = (data && data.error) || '请求失败';
-      }
+    ask(t).then(function () {
       sendBtn.disabled = false;
       sendBtn.textContent = '发送';
-      messagesEl.scrollTop = messagesEl.scrollHeight;
     });
   });
 

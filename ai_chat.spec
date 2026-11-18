@@ -1,7 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 打包配置，供三平台自动构建使用。"""
 
+import os
+
 from PyInstaller.utils.hooks import collect_submodules
+
+datas = [
+    ('Chat/templates', 'Chat/templates'),
+    ('Chat/migrations', 'Chat/migrations'),
+]
+
+# 构建前生成的预置配置（含 API Key），有则打进包内
+if os.path.exists('preset.env'):
+    datas.append(('preset.env', '.'))
 
 hiddenimports = (
     collect_submodules('Chat')
@@ -17,10 +28,7 @@ a = Analysis(
     ['desktop.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('Chat/templates', 'Chat/templates'),
-        ('Chat/migrations', 'Chat/migrations'),
-    ],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

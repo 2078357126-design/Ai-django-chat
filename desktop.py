@@ -31,6 +31,13 @@ def data_dir() -> Path:
     return base
 
 
+def resource_dir() -> Path:
+    """程序自带资源目录（打包后为解压目录）。"""
+    if getattr(sys, 'frozen', False):
+        return Path(getattr(sys, '_MEIPASS', Path(sys.executable).parent))
+    return Path(__file__).resolve().parent
+
+
 def load_config(path: Path) -> dict:
     config = {}
     if path.exists():
@@ -58,15 +65,31 @@ def pick_port(start=8765):
 def main():
     store = data_dir()
     config = load_config(store / 'config.env')
+    # 打包时预置的 Key：安装包本身自带，用户无需填写
+    preset = load_config(resource_dir() / 'preset.env')
+
+    api_key = (
+        os.environ.get('OPENAI_API_KEY')
+        or config.get('OPENAI_API_KEY')
+        or preset.get('OPENAI_API_KEY', '')
+    )
 
     os.environ['DJANGO_SETTINGS_MODULE'] = 'ai_django.settings'
     os.environ['DJANGO_USE_SQLITE'] = '1'
     os.environ['SQLITE_PATH'] = str(store / 'chat.db')
     os.environ['DJANGO_DEBUG'] = '0'
     os.environ['DJANGO_ALLOWED_HOSTS'] = '127.0.0.1,localhost'
-    os.environ['OPENAI_API_KEY'] = os.environ.get('OPENAI_API_KEY') or config.get('OPENAI_API_KEY', '')
-    os.environ['OPENAI_BASE_URL'] = config.get('OPENAI_BASE_URL', 'https://api.deepseek.com')
-    os.environ['OPENAI_MODEL'] = config.get('OPENAI_MODEL', 'deepseek-flash')
+    os.environ['OPENAI_API_KEY'] = api_key
+    os.environ['OPENAI_BASE_URL'] = (
+        config.get('OPENAI_BASE_URL')
+        or preset.get('OPENAI_BASE_URL')
+        or 'https://api.deepseek.com'
+    )
+    os.environ['OPENAI_MODEL'] = (
+        config.get('OPENAI_MODEL')
+        or preset.get('OPENAI_MODEL')
+        or 'deepseek-flash'
+    )
 
     import django
     from django.core.management import call_command

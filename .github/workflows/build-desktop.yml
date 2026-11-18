@@ -29,6 +29,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: 预置 API Key
+        shell: bash
+        env:
+          PRESET_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$PRESET_KEY" ]; then
+            echo "未配置 OPENAI_API_KEY Secret，安装包将要求用户自行填写"
+            exit 0
+          fi
+          printf 'OPENAI_API_KEY=%s\nOPENAI_BASE_URL=https://api.deepseek.com\nOPENAI_MODEL=deepseek-flash\n' "$PRESET_KEY" > preset.env
+
       - name: 打包
         run: pyinstaller --noconfirm --clean ai_chat.spec
 

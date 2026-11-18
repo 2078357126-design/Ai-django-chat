@@ -139,14 +139,19 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void resetKey() {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_API).apply();
-            runOnUiThread(() -> {
-                if (webView != null) {
-                    webView.destroy();
-                    webView = null;
-                }
-                showKeySetup();
-            });
+            runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("更换 API Key")
+                    .setMessage("确定要重新填写 API Key 吗？")
+                    .setPositiveButton("确定", (dialog, which) -> {
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_API).apply();
+                        if (webView != null) {
+                            webView.destroy();
+                            webView = null;
+                        }
+                        showKeySetup();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show());
         }
 
         @JavascriptInterface

@@ -319,9 +319,8 @@
   });
 
   document.getElementById('reset').addEventListener('click', function () {
-    if (confirm('要更换 API Key 吗？')) {
-      Android.resetKey();
-    }
+    // 确认框由原生层弹出，避免 WebView 不支持 confirm 导致点击无效
+    Android.resetKey();
   });
 </script>
 </body>

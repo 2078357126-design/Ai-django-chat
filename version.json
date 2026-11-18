@@ -1,0 +1,6 @@
+{
+  "versionCode": 4,
+  "versionName": "1.3",
+  "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
+  "notes": "新增 App 内一键更新；支持更换 API Key、编辑已发送的消息。"
+}

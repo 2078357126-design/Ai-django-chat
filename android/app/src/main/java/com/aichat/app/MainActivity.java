@@ -1,8 +1,14 @@
 package com.aichat.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.ProgressDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.ViewGroup;
@@ -15,10 +21,14 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.core.content.FileProvider;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -36,6 +46,8 @@ public class MainActivity extends Activity {
     private static final String KEY_API = "api_key";
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
+    private static final String VERSION_URL =
+            "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
 
     private WebView webView;
 
@@ -47,6 +59,7 @@ public class MainActivity extends Activity {
         } else {
             openChat();
         }
+        new Thread(this::checkForUpdate).start();
     }
 
     private String getApiKey() {
@@ -207,6 +220,135 @@ public class MainActivity extends Activity {
             return err.toString();
         } catch (Exception e) {
             return "{\"error\":\"未知错误\"}";
+        }
+    }
+
+    /** 当前已安装版本的 versionCode。 */
+    private int currentVersionCode() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return Build.VERSION.SDK_INT >= 28 ? (int) info.getLongVersionCode() : info.versionCode;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 启动时在后台检查是否有新版本，失败时静默忽略。 */
+    private void checkForUpdate() {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(VERSION_URL).openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("Cache-Control", "no-cache");
+            if (conn.getResponseCode() >= 400) {
+                return;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+            }
+
+            JSONObject info = new JSONObject(sb.toString());
+            final int remoteCode = info.getInt("versionCode");
+            final String remoteName = info.optString("versionName", "");
+            final String apkUrl = info.optString("url", "");
+            final String notes = info.optString("notes", "");
+
+            if (remoteCode <= currentVersionCode() || apkUrl.isEmpty()) {
+                return;
+            }
+            runOnUiThread(() -> showUpdateDialog(remoteName, notes, apkUrl));
+        } catch (Exception ignored) {
+            // 网络异常或解析失败时不影响正常使用
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private void showUpdateDialog(String versionName, String notes, String apkUrl) {
+        String message = "发现新版本 " + versionName;
+        if (!notes.isEmpty()) {
+            message += "\n\n" + notes;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("发现新版本")
+                .setMessage(message)
+                .setPositiveButton("立即更新", (dialog, which) -> downloadAndInstall(apkUrl))
+                .setNegativeButton("以后再说", null)
+                .show();
+    }
+
+    /** 下载新版 APK，完成后交给系统安装器覆盖安装。 */
+    private void downloadAndInstall(String apkUrl) {
+        ProgressDialog progress = new ProgressDialog(this);
+        progress.setTitle("正在下载更新");
+        progress.setMessage("请稍候…");
+        progress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+        progress.setProgress(0);
+        progress.setCancelable(false);
+        progress.show();
+
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                File apk = new File(getCacheDir(), "update.apk");
+                if (apk.exists() && !apk.delete()) {
+                    throw new IllegalStateException("无法清理旧的安装包");
+                }
+
+                conn = (HttpURLConnection) new URL(apkUrl).openConnection();
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(120000);
+                conn.connect();
+
+                int total = conn.getContentLength();
+                runOnUiThread(() -> progress.setMax(total > 0 ? total : 100));
+
+                try (InputStream in = conn.getInputStream();
+                     OutputStream out = new FileOutputStream(apk)) {
+                    byte[] buffer = new byte[8192];
+                    int len;
+                    int done = 0;
+                    while ((len = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, len);
+                        done += len;
+                        final int current = done;
+                        runOnUiThread(() -> progress.setProgress(current));
+                    }
+                }
+
+                runOnUiThread(progress::dismiss);
+                installApk(apk);
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    Toast.makeText(this, "更新失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }).start();
+    }
+
+    private void installApk(File apk) {
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(this, "无法启动安装：" + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 

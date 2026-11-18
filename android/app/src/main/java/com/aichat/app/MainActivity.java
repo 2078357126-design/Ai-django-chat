@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
         layout.setPadding(60, 200, 60, 60);
 
         TextView title = new TextView(this);
-        title.setText("AI 对话");
+        title.setText("AI云");
         title.setTextSize(24);
         title.setTextColor(Color.parseColor("#1F2329"));
         layout.addView(title, fullWidth());

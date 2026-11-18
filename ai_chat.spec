@@ -2,6 +2,7 @@
 """PyInstaller 打包配置，供三平台自动构建使用。"""
 
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -67,9 +68,14 @@ coll = COLLECT(
     name='AIChat',
 )
 
-app = BUNDLE(
-    coll,
-    name='AIChat.app',
-    icon=None,
-    bundle_identifier='com.aichat.desktop',
-)
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='AIChat.app',
+        icon='assets/app.icns',
+        bundle_identifier='com.aichat.desktop',
+        info_plist={
+            'CFBundleDisplayName': 'AI云',
+            'CFBundleName': 'AI云',
+        },
+    )

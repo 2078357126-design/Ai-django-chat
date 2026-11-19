@@ -25,9 +25,12 @@ import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -56,6 +59,8 @@ public class MainActivity extends Activity {
     private static final String KEY_API = "api_key";
     private static final String KEY_KEYS = "api_keys";
     private static final String KEY_VOICE = "tts_voice";
+    private static final String KEY_PITCH = "tts_pitch";
+    private static final String KEY_RATE = "tts_rate";
     private static final int MAX_KEYS = 3;
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
@@ -380,6 +385,7 @@ public class MainActivity extends Activity {
             }
             ttsReady = true;
             applySavedVoice();
+            applySavedParams();
             if (pendingSpeech != null) {
                 String text = pendingSpeech;
                 pendingSpeech = null;
@@ -445,9 +451,10 @@ public class MainActivity extends Activity {
             return;
         }
         final List<Voice> voices = new ArrayList<>();
-        final List<String> labels = new ArrayList<>();
-        String current = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_VOICE, "");
-        labels.add("系统默认" + (current.isEmpty() ? "（当前）" : ""));
+        final List<String> names = new ArrayList<>();
+        names.add("系统默认");
+        String currentVoice = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_VOICE, "");
+        int selectedIndex = 0;
 
         Set<Voice> all = tts.getVoices();
         if (all != null) {
@@ -456,11 +463,10 @@ public class MainActivity extends Activity {
                     continue;
                 }
                 voices.add(voice);
-                String label = voice.getName() + " · " + voice.getLocale().getDisplayName();
-                if (voice.getName().equals(current)) {
-                    label += "（当前）";
+                names.add(voice.getName() + " · " + voice.getLocale().getDisplayName());
+                if (voice.getName().equals(currentVoice)) {
+                    selectedIndex = voices.size();
                 }
-                labels.add(label);
             }
         }
         if (voices.isEmpty()) {
@@ -472,27 +478,167 @@ public class MainActivity extends Activity {
             return;
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle("选择朗读语音")
-                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
-                    if (which == 0) {
-                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                                .remove(KEY_VOICE).apply();
-                        tts.setLanguage(Locale.CHINA);
-                    } else {
-                        Voice voice = voices.get(which - 1);
-                        if (tts.setVoice(voice) != TextToSpeech.SUCCESS) {
-                            Toast.makeText(this, "这个语音不可用，继续使用默认语音",
-                                    Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                                .putString(KEY_VOICE, voice.getName()).apply();
-                    }
-                    tts.speak("你好，我是 AI 云", TextToSpeech.QUEUE_FLUSH, null, "sample");
+        float density = getResources().getDisplayMetrics().density;
+        int pad = Math.round(20 * density);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, Math.round(8 * density), pad, 0);
+
+        box.addView(settingLabel("音色"));
+        final Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, names);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(selectedIndex);
+        box.addView(spinner);
+
+        final SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        final float[] pitch = {prefs.getFloat(KEY_PITCH, 1f)};
+        final float[] rate = {prefs.getFloat(KEY_RATE, 1f)};
+
+        final TextView pitchLabel = settingLabel("音调：" + fmt1(pitch[0]));
+        SeekBar pitchBar = new SeekBar(this);
+        pitchBar.setMax(15);
+        pitchBar.setProgress(Math.round((pitch[0] - 0.5f) * 10));
+        pitchBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                pitch[0] = 0.5f + progress / 10f;
+                pitchLabel.setText("音调：" + fmt1(pitch[0]));
+                setVoiceParams(pitch[0], rate[0]);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        box.addView(pitchLabel);
+        box.addView(pitchBar);
+
+        final TextView rateLabel = settingLabel("语速：" + fmt1(rate[0]));
+        SeekBar rateBar = new SeekBar(this);
+        rateBar.setMax(15);
+        rateBar.setProgress(Math.round((rate[0] - 0.5f) * 10));
+        rateBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                rate[0] = 0.5f + progress / 10f;
+                rateLabel.setText("语速：" + fmt1(rate[0]));
+                setVoiceParams(pitch[0], rate[0]);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        box.addView(rateLabel);
+        box.addView(rateBar);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("语音设置")
+                .setView(box)
+                .setPositiveButton("保存并试听", (d, w) -> {
+                    saveVoiceChoice(spinner.getSelectedItemPosition(), voices);
+                    saveVoiceParams(pitch[0], rate[0]);
+                    previewSpeak();
                 })
-                .setNegativeButton("取消", null)
-                .show();
+                .setNeutralButton("试听", null)
+                .setNegativeButton("取消", (d, w) -> {
+                    applySavedVoice();
+                    applySavedParams();
+                })
+                .create();
+
+        // 试听按钮默认会关闭对话框，这里改成只试听不关闭
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(v -> {
+                    applyVoiceChoice(spinner.getSelectedItemPosition(), voices);
+                    setVoiceParams(pitch[0], rate[0]);
+                    previewSpeak();
+                }));
+        dialog.show();
+    }
+
+    private TextView settingLabel(String text) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(13);
+        view.setTextColor(Color.parseColor("#4E5969"));
+        view.setPadding(0, 14, 0, 2);
+        return view;
+    }
+
+    private String fmt1(float value) {
+        return String.format(Locale.CHINA, "%.1f", value);
+    }
+
+    /** 临时切换音色（试听用，不保存）。 */
+    private void applyVoiceChoice(int which, List<Voice> voices) {
+        if (tts == null) {
+            return;
+        }
+        if (which <= 0) {
+            tts.setLanguage(Locale.CHINA);
+        } else if (which - 1 < voices.size()) {
+            tts.setVoice(voices.get(which - 1));
+        }
+    }
+
+    private void saveVoiceChoice(int which, List<Voice> voices) {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (which <= 0) {
+            prefs.edit().remove(KEY_VOICE).apply();
+            if (tts != null) {
+                tts.setLanguage(Locale.CHINA);
+            }
+            return;
+        }
+        if (which - 1 >= voices.size()) {
+            return;
+        }
+        Voice voice = voices.get(which - 1);
+        if (tts != null && tts.setVoice(voice) != TextToSpeech.SUCCESS) {
+            Toast.makeText(this, "这个语音不可用，继续使用默认语音", Toast.LENGTH_SHORT).show();
+            prefs.edit().remove(KEY_VOICE).apply();
+            tts.setLanguage(Locale.CHINA);
+            return;
+        }
+        prefs.edit().putString(KEY_VOICE, voice.getName()).apply();
+    }
+
+    private void setVoiceParams(float pitch, float rate) {
+        if (tts == null) {
+            return;
+        }
+        tts.setPitch(pitch);
+        tts.setSpeechRate(rate);
+    }
+
+    private void saveVoiceParams(float pitch, float rate) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putFloat(KEY_PITCH, pitch)
+                .putFloat(KEY_RATE, rate)
+                .apply();
+    }
+
+    private void applySavedParams() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        setVoiceParams(prefs.getFloat(KEY_PITCH, 1f), prefs.getFloat(KEY_RATE, 1f));
+    }
+
+    private void previewSpeak() {
+        if (tts != null && ttsReady) {
+            tts.speak("你好，我是 AI 云", TextToSpeech.QUEUE_FLUSH, null, "sample");
+        }
     }
 
     private void runJs(String script) {

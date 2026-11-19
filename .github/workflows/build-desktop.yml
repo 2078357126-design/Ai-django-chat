@@ -17,7 +17,7 @@ jobs:
         include:
           - os: macos-15-intel
             artifact: AIChat-macos-intel
-          - os: macos-latest
+          - os: macos-15
             artifact: AIChat-macos-arm64
           - os: windows-latest
             artifact: AIChat-windows

@@ -1,6 +1,6 @@
 {
-  "versionCode": 16,
-  "versionName": "2.3",
+  "versionCode": 17,
+  "versionName": "2.4",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "表情升级为图片：情绪到位时偶尔自动补一张表情图，不再用文字表情。"
+  "notes": "朗读会按文字情绪自动调整音调和语速，听起来更有起伏。"
 }

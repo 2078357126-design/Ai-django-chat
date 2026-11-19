@@ -640,7 +640,111 @@ public class MainActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
             return;
         }
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aiyun");
+        speakWithEmotion(text);
+    }
+
+    /** 按句子和情绪调整音调、语速，让朗读有起伏。 */
+    private void speakWithEmotion(String text) {
+        if (tts == null || text == null) {
+            return;
+        }
+        float basePitch = activePitch();
+        float baseRate = activeRate();
+        List<String> parts = splitForSpeech(text);
+        if (parts.isEmpty()) {
+            return;
+        }
+        tts.stop();
+        boolean first = true;
+        for (String part : parts) {
+            float[] params = emotionParams(part, basePitch, baseRate);
+            tts.setPitch(params[0]);
+            tts.setSpeechRate(params[1]);
+            tts.speak(part, first ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD,
+                    null, "aiyun" + System.currentTimeMillis());
+            first = false;
+        }
+        // 播完恢复用户设置的基础音调/语速
+        tts.setPitch(basePitch);
+        tts.setSpeechRate(baseRate);
+    }
+
+    private List<String> splitForSpeech(String text) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder buffer = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            buffer.append(c);
+            boolean end = "。！？!?；;\n".indexOf(c) >= 0;
+            if (end || buffer.length() >= 40) {
+                String part = buffer.toString().trim();
+                if (!part.isEmpty()) {
+                    parts.add(part);
+                }
+                buffer.setLength(0);
+            }
+        }
+        String rest = buffer.toString().trim();
+        if (!rest.isEmpty()) {
+            parts.add(rest);
+        }
+        return parts;
+    }
+
+    private float[] emotionParams(String part, float basePitch, float baseRate) {
+        float pitch = basePitch;
+        float rate = baseRate;
+        if (containsAny(part, "哈哈", "笑死", "嘿嘿", "好耶", "冲", "😂", "🤣", "😄")) {
+            pitch += 0.14f;
+            rate += 0.08f;
+        } else if (containsAny(part, "呜呜", "难过", "委屈", "想哭", "😭", "🥺")) {
+            pitch -= 0.10f;
+            rate -= 0.08f;
+        } else if (containsAny(part, "哼", "生气", "讨厌", "烦", "😤", "😡")) {
+            pitch += 0.06f;
+            rate += 0.05f;
+        } else if (containsAny(part, "震惊", "卧槽", "离谱", "不会吧", "😱", "😨")) {
+            pitch += 0.10f;
+            rate += 0.03f;
+        } else if (containsAny(part, "害羞", "脸红", "😳", "🙈")) {
+            pitch += 0.05f;
+            rate -= 0.03f;
+        }
+        if (part.endsWith("？") || part.endsWith("?")) {
+            pitch += 0.08f;
+        }
+        // 轻微随机抖动，避免每句都一模一样
+        pitch += (Math.random() - 0.5) * 0.04;
+        pitch = Math.max(0.5f, Math.min(2.0f, pitch));
+        rate = Math.max(0.5f, Math.min(2.0f, rate));
+        return new float[]{pitch, rate};
+    }
+
+    private boolean containsAny(String text, String... words) {
+        for (String word : words) {
+            if (text.contains(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private float activePitch() {
+        List<Preset> presets = loadPresets();
+        int index = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_ACTIVE, -1);
+        if (index >= 0 && index < presets.size()) {
+            return presets.get(index).pitch;
+        }
+        return 1f;
+    }
+
+    private float activeRate() {
+        List<Preset> presets = loadPresets();
+        int index = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_ACTIVE, -1);
+        if (index >= 0 && index < presets.size()) {
+            return presets.get(index).rate;
+        }
+        return 1f;
     }
 
     private void showVoicePicker() {

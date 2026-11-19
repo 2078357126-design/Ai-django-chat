@@ -130,6 +130,8 @@
     color: #8a9099;
     font-size: 11px;
   }
+  .sticker-bubble { align-self: flex-start; }
+  .sticker-bubble img { width: 96px; height: 96px; display: block; }
   .msg.error {
     align-self: flex-start;
     background: #fff1f0;
@@ -225,7 +227,8 @@
 
   function saveHistory() {
     var data = turns.map(function (t) {
-      return { text: t.text, reply: t.reply, error: t.error, proactive: t.proactive };
+      return { text: t.text, reply: t.reply, error: t.error,
+               proactive: t.proactive, sticker: t.sticker };
     });
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* 存储满时忽略 */ }
   }
@@ -258,6 +261,57 @@
       speak.textContent = '朗读';
       t.bot.appendChild(speak);
     }
+    renderSticker(t);
+  }
+
+  function renderSticker(t) {
+    if (!t.stickerEl) return;
+    if (!t.sticker) {
+      t.stickerEl.style.display = 'none';
+      t.stickerEl.innerHTML = '';
+      t.stickerEl.removeAttribute('data-sticker');
+      return;
+    }
+    t.stickerEl.style.display = '';
+    if (t.stickerEl.getAttribute('data-sticker') === t.sticker) return;
+    t.stickerEl.innerHTML = '';
+    var img = document.createElement('img');
+    img.src = 'stickers/' + t.sticker + '.svg';
+    img.alt = '表情';
+    t.stickerEl.appendChild(img);
+    t.stickerEl.setAttribute('data-sticker', t.sticker);
+  }
+
+  // 情绪关键词 -> 表情图
+  var STICKERS = {
+    happy: ['哈哈', '笑死', '嘿嘿', '开心', '好耶', '😄', '😂', '🤣', '😊', '😆'],
+    angry: ['哼', '生气', '气死', '烦', '讨厌', '😤', '😡', '💢'],
+    sad: ['呜呜', '委屈', '难过', '想哭', '😭', '🥺'],
+    shy: ['害羞', '脸红', '不好意思', '😳', '🙈'],
+    shock: ['震惊', '卧槽', '离谱', '不会吧', '😱', '😨'],
+    love: ['喜欢你', '想你', '爱你', '❤', '😍', '🥰'],
+    smug: ['得意', '哼哼', '小样', '😏', '😎'],
+    cat: ['喵', '猫猫', '🐱', '🐈']
+  };
+
+  function pickSticker(text) {
+    if (!text) return '';
+    for (var key in STICKERS) {
+      var words = STICKERS[key];
+      for (var i = 0; i < words.length; i++) {
+        if (text.indexOf(words[i]) >= 0) return key;
+      }
+    }
+    return '';
+  }
+
+  function stickerForReply(text) {
+    var key = pickSticker(text);
+    if (!key) return '';
+    var prev = turns.length > 1 ? turns[turns.length - 2] : null;
+    if (prev && prev.sticker) return '';
+    if (Math.random() > 0.4) return '';
+    return key;
   }
 
   function speakText(text) {
@@ -322,7 +376,7 @@
     }
   }
 
-  function addTurn(text, reply, error, proactive) {
+  function addTurn(text, reply, error, proactive, sticker) {
     var el = document.createElement('div');
     el.className = 'turn';
 
@@ -332,17 +386,23 @@
     var bot = document.createElement('div');
     bot.className = 'msg bot';
 
-    el.append(user, bot);
+    var stickerEl = document.createElement('div');
+    stickerEl.className = 'sticker-bubble';
+    stickerEl.style.display = 'none';
+
+    el.append(user, bot, stickerEl);
     messagesEl.appendChild(el);
 
     var t = {
       el: el,
       user: user,
       bot: bot,
+      stickerEl: stickerEl,
       text: text,
       reply: reply || '',
       error: !!error,
       proactive: !!proactive,
+      sticker: sticker || '',
       editing: false,
       pending: false
     };
@@ -350,6 +410,7 @@
     turns.push(t);
     renderTurn(t);
     renderBot(t);
+    renderSticker(t);
     return t;
   }
 
@@ -359,7 +420,8 @@
     if (!Array.isArray(saved) || !saved.length) return;
     hideTip();
     saved.forEach(function (item) {
-      addTurn(item.text || '', item.reply || '', !!item.error, !!item.proactive);
+      addTurn(item.text || '', item.reply || '', !!item.error,
+              !!item.proactive, item.sticker || '');
     });
     scrollToBottom();
   }
@@ -400,15 +462,20 @@
     t.pending = true;
     t.error = false;
     t.reply = '';
+    t.sticker = '';
     renderBot(t);
     return callChat(t.text).then(function (data) {
       t.pending = false;
       if (data && data.reply) {
         t.reply = data.reply;
         t.error = false;
+        if (!t.proactive) {
+          t.sticker = stickerForReply(t.reply);
+        }
       } else {
         t.reply = (data && data.error) || '请求失败';
         t.error = true;
+        t.sticker = '';
       }
       renderBot(t);
       saveHistory();

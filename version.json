@@ -1,6 +1,6 @@
 {
-  "versionCode": 12,
-  "versionName": "1.11",
+  "versionCode": 13,
+  "versionName": "2.0",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "自定义音色改为保存预设：添加时随机读 15 字试听，最多存 5 个，满了需手动删一个。"
+  "notes": "版本号改为 x.0～x.9 递增，满 9 自动进位（1.9 之后是 2.0）。"
 }

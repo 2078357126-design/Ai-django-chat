@@ -17,6 +17,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.Voice;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -41,6 +43,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * 独立聊天客户端：直接调用 DeepSeek 接口，不依赖电脑。
@@ -51,6 +55,7 @@ public class MainActivity extends Activity {
     private static final String PREFS = "aichat";
     private static final String KEY_API = "api_key";
     private static final String KEY_KEYS = "api_keys";
+    private static final String KEY_VOICE = "tts_voice";
     private static final int MAX_KEYS = 3;
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
@@ -63,11 +68,15 @@ public class MainActivity extends Activity {
     private WebView webView;
     private long updateDownloadId = -1;
     private BroadcastReceiver updateReceiver;
+    private TextToSpeech tts;
+    private boolean ttsReady;
+    private String pendingSpeech;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         registerUpdateReceiver();
+        initTts();
         if (getApiKey().isEmpty()) {
             showKeySetup();
         } else {
@@ -78,6 +87,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+            tts = null;
+        }
         if (updateReceiver != null) {
             try {
                 unregisterReceiver(updateReceiver);
@@ -308,9 +322,135 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void speak(String text) {
+            if (text == null || text.trim().isEmpty()) {
+                return;
+            }
+            final String value = text.trim();
+            runOnUiThread(() -> speakNow(value));
+        }
+
+        @JavascriptInterface
+        public void stopSpeak() {
+            runOnUiThread(() -> {
+                if (tts != null) {
+                    tts.stop();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void chooseVoice() {
+            runOnUiThread(MainActivity.this::showVoicePicker);
+        }
+
+        @JavascriptInterface
         public String modelName() {
             return MODEL;
         }
+    }
+
+    private void initTts() {
+        tts = new TextToSpeech(this, status -> {
+            if (status != TextToSpeech.SUCCESS) {
+                ttsReady = false;
+                return;
+            }
+            ttsReady = true;
+            applySavedVoice();
+            if (pendingSpeech != null) {
+                String text = pendingSpeech;
+                pendingSpeech = null;
+                speakNow(text);
+            }
+        });
+    }
+
+    /** 有自定义语音就用自定义的，否则用系统默认中文语音。 */
+    private void applySavedVoice() {
+        String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_VOICE, "");
+        if (tts == null) {
+            return;
+        }
+        if (!saved.isEmpty()) {
+            Set<Voice> voices = tts.getVoices();
+            if (voices != null) {
+                for (Voice voice : voices) {
+                    if (voice.getName().equals(saved)) {
+                        if (tts.setVoice(voice) == TextToSpeech.SUCCESS) {
+                            return;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        // 没有自定义或自定义不可用：回到系统默认
+        tts.setLanguage(Locale.CHINA);
+    }
+
+    private void speakNow(String text) {
+        if (tts == null) {
+            return;
+        }
+        if (!ttsReady) {
+            pendingSpeech = text;
+            return;
+        }
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aiyun");
+    }
+
+    private void showVoicePicker() {
+        if (tts == null || !ttsReady) {
+            Toast.makeText(this, "语音引擎还在初始化，请稍后再试", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final List<Voice> voices = new ArrayList<>();
+        final List<String> labels = new ArrayList<>();
+        String current = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_VOICE, "");
+        labels.add("系统默认" + (current.isEmpty() ? "（当前）" : ""));
+
+        Set<Voice> all = tts.getVoices();
+        if (all != null) {
+            for (Voice voice : all) {
+                if (!"zh".equals(voice.getLocale().getLanguage())) {
+                    continue;
+                }
+                voices.add(voice);
+                String label = voice.getName() + " · " + voice.getLocale().getDisplayName();
+                if (voice.getName().equals(current)) {
+                    label += "（当前）";
+                }
+                labels.add(label);
+            }
+        }
+        if (voices.isEmpty()) {
+            Toast.makeText(this, "系统里没有可用的中文语音，请先在系统设置中安装",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("选择朗读语音")
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    if (which == 0) {
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                                .remove(KEY_VOICE).apply();
+                        tts.setLanguage(Locale.CHINA);
+                    } else {
+                        Voice voice = voices.get(which - 1);
+                        if (tts.setVoice(voice) != TextToSpeech.SUCCESS) {
+                            Toast.makeText(this, "这个语音不可用，继续使用默认语音",
+                                    Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                                .putString(KEY_VOICE, voice.getName()).apply();
+                    }
+                    tts.speak("你好，我是 AI 云", TextToSpeech.QUEUE_FLUSH, null, "sample");
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void runJs(String script) {

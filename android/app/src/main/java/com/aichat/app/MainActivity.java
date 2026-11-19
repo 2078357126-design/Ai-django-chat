@@ -1,15 +1,22 @@
 package com.aichat.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.ProgressDialog;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.text.InputType;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -21,14 +28,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.core.content.FileProvider;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -50,16 +53,31 @@ public class MainActivity extends Activity {
             "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
 
     private WebView webView;
+    private long updateDownloadId = -1;
+    private BroadcastReceiver updateReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        registerUpdateReceiver();
         if (getApiKey().isEmpty()) {
             showKeySetup();
         } else {
             openChat();
         }
         new Thread(this::checkForUpdate).start();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (updateReceiver != null) {
+            try {
+                unregisterReceiver(updateReceiver);
+            } catch (Exception ignored) {
+            }
+            updateReceiver = null;
+        }
+        super.onDestroy();
     }
 
     private String getApiKey() {
@@ -155,8 +173,36 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void confirmClearHistory() {
+            runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("清空聊天记录")
+                    .setMessage("确定要删除全部聊天记录吗？")
+                    .setPositiveButton("清空", (dialog, which) -> runJs("window.__clearAll()"))
+                    .setNegativeButton("取消", null)
+                    .show());
+        }
+
+        @JavascriptInterface
+        public void confirmDeleteTurn(final int index) {
+            runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("删除记录")
+                    .setMessage("确定删除这条聊天记录吗？")
+                    .setPositiveButton("删除",
+                            (dialog, which) -> runJs("window.__deleteTurn(" + index + ")"))
+                    .setNegativeButton("取消", null)
+                    .show());
+        }
+
+        @JavascriptInterface
         public String modelName() {
             return MODEL;
+        }
+    }
+
+    private void runJs(String script) {
+        WebView view = webView;
+        if (view != null) {
+            view.evaluateJavascript(script, null);
         }
     }
 
@@ -291,63 +337,67 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    /** 下载新版 APK，完成后交给系统安装器覆盖安装。 */
-    private void downloadAndInstall(String apkUrl) {
-        ProgressDialog progress = new ProgressDialog(this);
-        progress.setTitle("正在下载更新");
-        progress.setMessage("请稍候…");
-        progress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
-        progress.setProgress(0);
-        progress.setCancelable(false);
-        progress.show();
-
-        new Thread(() -> {
-            HttpURLConnection conn = null;
-            try {
-                File apk = new File(getCacheDir(), "update.apk");
-                if (apk.exists() && !apk.delete()) {
-                    throw new IllegalStateException("无法清理旧的安装包");
+    private void registerUpdateReceiver() {
+        updateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id == -1 || id != updateDownloadId) {
+                    return;
                 }
-
-                conn = (HttpURLConnection) new URL(apkUrl).openConnection();
-                conn.setConnectTimeout(20000);
-                conn.setReadTimeout(120000);
-                conn.connect();
-
-                int total = conn.getContentLength();
-                runOnUiThread(() -> progress.setMax(total > 0 ? total : 100));
-
-                try (InputStream in = conn.getInputStream();
-                     OutputStream out = new FileOutputStream(apk)) {
-                    byte[] buffer = new byte[8192];
-                    int len;
-                    int done = 0;
-                    while ((len = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, len);
-                        done += len;
-                        final int current = done;
-                        runOnUiThread(() -> progress.setProgress(current));
+                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                DownloadManager.Query query = new DownloadManager.Query().setFilterById(id);
+                try (Cursor cursor = dm.query(query)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int status = cursor.getInt(
+                                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                            Uri uri = dm.getUriForDownloadedFile(id);
+                            if (uri != null) {
+                                launchInstaller(uri);
+                            }
+                        } else {
+                            Toast.makeText(MainActivity.this, "下载失败，请检查网络后重试",
+                                    Toast.LENGTH_LONG).show();
+                        }
                     }
                 }
-
-                runOnUiThread(progress::dismiss);
-                installApk(apk);
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    progress.dismiss();
-                    Toast.makeText(this, "更新失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
-                });
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
             }
-        }).start();
+        };
+        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(updateReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(updateReceiver, filter);
+        }
     }
 
-    private void installApk(File apk) {
+    /** 交给系统下载管理器，切到后台也会继续下载。 */
+    private void downloadAndInstall(String apkUrl) {
         try {
-            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+            }
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
+            request.setTitle("AI云 更新");
+            request.setDescription("正在下载新版本…");
+            request.setMimeType("application/vnd.android.package-archive");
+            request.setNotificationVisibility(
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS,
+                    "AIYun-update.apk");
+            updateDownloadId = dm.enqueue(request);
+            Toast.makeText(this, "已开始下载，可切到后台稍候", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "无法开始下载：" + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void launchInstaller(Uri uri) {
+        try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(uri, "application/vnd.android.package-archive");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);

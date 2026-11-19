@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
+  "versionCode": 6,
+  "versionName": "1.5",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "修复：点击「更换 Key」没有反应。"
+  "notes": "新增：删除单条/清空聊天记录；聊天记录切后台不丢失；更新包可在后台下载。"
 }

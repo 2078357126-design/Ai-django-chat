@@ -23,6 +23,7 @@
     justify-content: space-between;
   }
   header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .header-actions { display: flex; gap: 12px; }
   header button {
     border: none;
     background: none;
@@ -63,15 +64,20 @@
     color: #fff;
     border-bottom-right-radius: 4px;
   }
-  .msg.user .edit {
+  .msg.user .msg-actions {
     align-self: flex-end;
+    display: flex;
+    gap: 10px;
     margin-top: 2px;
+  }
+  .msg.user .msg-actions button {
     padding: 0;
     border: none;
     background: none;
     color: rgba(255, 255, 255, .7);
     font-size: 11px;
   }
+  .msg.user .msg-actions .delete { color: rgba(255, 220, 220, .85); }
   .msg.user.editing {
     width: 80%;
     max-width: 80%;
@@ -153,7 +159,10 @@
 <body>
 <header>
   <h1>AI云</h1>
-  <button id="reset" type="button">更换 Key</button>
+  <div class="header-actions">
+    <button id="clear" type="button">清空</button>
+    <button id="reset" type="button">更换 Key</button>
+  </div>
 </header>
 
 <main id="messages">
@@ -194,8 +203,36 @@
     });
   }
 
+  var STORAGE_KEY = 'aichat_history';
+  var turns = [];
+
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function saveHistory() {
+    var data = turns.map(function (t) {
+      return { text: t.text, reply: t.reply, error: t.error };
+    });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* 存储满时忽略 */ }
+  }
+
+  function showTip() {
+    messagesEl.innerHTML = '';
+    var tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.textContent = '输入内容开始对话';
+    messagesEl.appendChild(tip);
+  }
+
+  function hideTip() {
+    var tip = messagesEl.querySelector('.tip');
+    if (tip) tip.remove();
+  }
+
+  function renderBot(t) {
+    t.bot.className = 'msg bot' + (t.error ? ' error' : '') + (t.pending ? ' pending' : '');
+    t.bot.textContent = t.pending ? '…' : (t.reply || '');
   }
 
   function renderTurn(t) {
@@ -226,15 +263,23 @@
     } else {
       var span = document.createElement('span');
       span.textContent = t.text;
+
+      var actions = document.createElement('div');
+      actions.className = 'msg-actions';
       var edit = document.createElement('button');
       edit.type = 'button';
       edit.className = 'edit';
       edit.textContent = '修改';
-      t.user.append(span, edit);
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'delete';
+      del.textContent = '删除';
+      actions.append(edit, del);
+      t.user.append(span, actions);
     }
   }
 
-  function newTurn(text) {
+  function addTurn(text, reply, error) {
     var el = document.createElement('div');
     el.className = 'turn';
 
@@ -242,30 +287,87 @@
     user.className = 'msg user';
 
     var bot = document.createElement('div');
-    bot.className = 'msg bot pending';
-    bot.textContent = '…';
+    bot.className = 'msg bot';
 
     el.append(user, bot);
     messagesEl.appendChild(el);
 
-    var t = { user: user, bot: bot, text: text, editing: false };
+    var t = {
+      el: el,
+      user: user,
+      bot: bot,
+      text: text,
+      reply: reply || '',
+      error: !!error,
+      editing: false,
+      pending: false
+    };
     el._turn = t;
+    turns.push(t);
     renderTurn(t);
-    scrollToBottom();
+    renderBot(t);
     return t;
   }
 
+  function restoreHistory() {
+    var saved;
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch (e) { saved = []; }
+    if (!Array.isArray(saved) || !saved.length) return;
+    hideTip();
+    saved.forEach(function (item) {
+      addTurn(item.text || '', item.reply || '', !!item.error);
+    });
+    scrollToBottom();
+  }
+
+  function removeTurn(t) {
+    var index = turns.indexOf(t);
+    if (index < 0) return;
+    turns.splice(index, 1);
+    t.el.remove();
+    saveHistory();
+    if (!turns.length) showTip();
+  }
+
+  function clearAll() {
+    turns = [];
+    localStorage.removeItem(STORAGE_KEY);
+    showTip();
+  }
+
+  function requestDelete(t) {
+    var index = turns.indexOf(t);
+    if (index < 0) return;
+    if (window.Android && Android.confirmDeleteTurn) {
+      Android.confirmDeleteTurn(index);
+    } else {
+      removeTurn(t);
+    }
+  }
+
+  // 供原生确认框回调
+  window.__clearAll = clearAll;
+  window.__deleteTurn = function (index) {
+    var t = turns[index];
+    if (t) removeTurn(t);
+  };
+
   function ask(t) {
-    t.bot.className = 'msg bot pending';
-    t.bot.textContent = '…';
+    t.pending = true;
+    t.error = false;
+    t.reply = '';
+    renderBot(t);
     return callChat(t.text).then(function (data) {
-      t.bot.classList.remove('pending');
+      t.pending = false;
       if (data && data.reply) {
-        t.bot.textContent = data.reply;
+        t.reply = data.reply;
+        t.error = false;
       } else {
-        t.bot.classList.add('error');
-        t.bot.textContent = (data && data.error) || '请求失败';
+        t.reply = (data && data.error) || '请求失败';
+        t.error = true;
       }
+      renderBot(t);
+      saveHistory();
       scrollToBottom();
     });
   }
@@ -278,6 +380,8 @@
     if (e.target.closest('.edit')) {
       t.editing = true;
       renderTurn(t);
+    } else if (e.target.closest('.delete')) {
+      requestDelete(t);
     } else if (e.target.closest('.btn-cancel')) {
       t.editing = false;
       renderTurn(t);
@@ -297,11 +401,10 @@
     var text = input.value.trim();
     if (!text || sendBtn.disabled) return;
 
-    var tip = messagesEl.querySelector('.tip');
-    if (tip) tip.remove();
-
+    hideTip();
     input.value = '';
-    var t = newTurn(text);
+    var t = addTurn(text);
+    saveHistory();
     sendBtn.disabled = true;
     sendBtn.textContent = '思考中…';
 
@@ -318,10 +421,20 @@
     }
   });
 
+  document.getElementById('clear').addEventListener('click', function () {
+    if (window.Android && Android.confirmClearHistory) {
+      Android.confirmClearHistory();
+    } else {
+      clearAll();
+    }
+  });
+
   document.getElementById('reset').addEventListener('click', function () {
     // 确认框由原生层弹出，避免 WebView 不支持 confirm 导致点击无效
     Android.resetKey();
   });
+
+  restoreHistory();
 </script>
 </body>
 </html>

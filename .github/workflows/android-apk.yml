@@ -42,20 +42,7 @@ jobs:
 
       - name: 构建 APK
         working-directory: android
-        run: |
-          set -o pipefail
-          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
-
-      - name: 失败时保存构建日志
-        if: failure()
-        run: |
-          mkdir -p dist-android
-          cp /tmp/build.log dist-android/build-error.log 2>/dev/null || echo "no log" > dist-android/build-error.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist-android/build-error.log
-          git commit -m "chore: 构建失败日志" || true
-          git push || true
+        run: gradle assembleRelease --no-daemon
 
       - name: 提交 APK
         run: |

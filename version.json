@@ -1,6 +1,6 @@
 {
-  "versionCode": 18,
-  "versionName": "2.5",
+  "versionCode": 19,
+  "versionName": "2.6",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "新增角色系统：可创建无限个角色（名字、性别、1000 字设定），每个角色独立聊天记录；小云为默认角色置顶且不可改名。"
+  "notes": "聊天页新增常驻「更新」按钮，可随时手动检查版本；已是最新或网络失败都会提示。"
 }

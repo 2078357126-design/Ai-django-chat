@@ -822,6 +822,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void checkUpdate() {
+            runOnUiThread(MainActivity.this::manualCheckForUpdate);
+        }
+
+        @JavascriptInterface
         public String activeRole() {
             return activeRoleId();
         }
@@ -1496,8 +1501,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 启动时在后台检查是否有新版本，失败时静默忽略。 */
-    private void checkForUpdate() {
+    /** 读取远端版本信息，失败返回 null。 */
+    private JSONObject fetchRemoteVersion() {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(VERSION_URL).openConnection();
@@ -1505,9 +1510,8 @@ public class MainActivity extends Activity {
             conn.setReadTimeout(10000);
             conn.setRequestProperty("Cache-Control", "no-cache");
             if (conn.getResponseCode() >= 400) {
-                return;
+                return null;
             }
-
             StringBuilder sb = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
@@ -1516,8 +1520,23 @@ public class MainActivity extends Activity {
                     sb.append(line);
                 }
             }
+            return new JSONObject(sb.toString());
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
 
-            JSONObject info = new JSONObject(sb.toString());
+    /** 启动时在后台检查是否有新版本，失败时静默忽略。 */
+    private void checkForUpdate() {
+        try {
+            JSONObject info = fetchRemoteVersion();
+            if (info == null) {
+                return;
+            }
             final int remoteCode = info.getInt("versionCode");
             final String remoteName = info.optString("versionName", "");
             final String apkUrl = info.optString("url", "");
@@ -1529,11 +1548,38 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> showUpdateDialog(remoteName, notes, apkUrl));
         } catch (Exception ignored) {
             // 网络异常或解析失败时不影响正常使用
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
         }
+    }
+
+    /** 手动检查更新：无论结果如何都给出提示。 */
+    private void manualCheckForUpdate() {
+        Toast.makeText(this, "正在检查更新…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final JSONObject info = fetchRemoteVersion();
+            runOnUiThread(() -> {
+                if (info == null) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("检查更新")
+                            .setMessage("检查失败，请检查网络后重试")
+                            .setPositiveButton("知道了", null)
+                            .show();
+                    return;
+                }
+                int code = info.optInt("versionCode", 0);
+                String name = info.optString("versionName", "");
+                String url = info.optString("url", "");
+                String notes = info.optString("notes", "");
+                if (code <= currentVersionCode() || url.isEmpty()) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("检查更新")
+                            .setMessage("已是最新版本 " + appVersionName())
+                            .setPositiveButton("知道了", null)
+                            .show();
+                } else {
+                    showUpdateDialog(name, notes, url);
+                }
+            });
+        }).start();
     }
 
     private void showUpdateDialog(String versionName, String notes, String apkUrl) {

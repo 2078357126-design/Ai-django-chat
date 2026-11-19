@@ -23,13 +23,13 @@
     justify-content: space-between;
   }
   header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-  header .header-actions { display: flex; gap: 12px; }
+  header .header-actions { display: flex; gap: 6px; }
   header button {
     border: none;
     background: none;
     color: #8a9099;
-    font-size: 13px;
-    padding: 4px 6px;
+    font-size: 12px;
+    padding: 4px 4px;
   }
   #messages {
     flex: 1;
@@ -176,6 +176,7 @@
   <div class="header-actions">
     <button id="roles" type="button">角色</button>
     <button id="voice" type="button">语音</button>
+    <button id="update" type="button">更新</button>
     <button id="clear" type="button">清空</button>
     <button id="reset" type="button">更换 Key</button>
   </div>
@@ -574,6 +575,14 @@
       Android.showRoles();
     } else {
       alert('角色管理请在 App 内使用');
+    }
+  });
+
+  document.getElementById('update').addEventListener('click', function () {
+    if (window.Android && Android.checkUpdate) {
+      Android.checkUpdate();
+    } else {
+      alert('检查更新请在 App 内使用');
     }
   });
 

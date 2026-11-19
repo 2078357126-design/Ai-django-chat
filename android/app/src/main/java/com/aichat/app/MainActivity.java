@@ -367,6 +367,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 初始化系统语音；失败时给出可操作的提示。 */
     private void initTts() {
         tts = new TextToSpeech(this, status -> {
             if (status != TextToSpeech.SUCCESS) {

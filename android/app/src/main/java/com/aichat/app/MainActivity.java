@@ -18,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.text.InputType;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -38,6 +39,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 独立聊天客户端：直接调用 DeepSeek 接口，不依赖电脑。
@@ -47,6 +50,8 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "aichat";
     private static final String KEY_API = "api_key";
+    private static final String KEY_KEYS = "api_keys";
+    private static final int MAX_KEYS = 3;
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
     private static final String SYSTEM_PROMPT =
@@ -83,8 +88,55 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    /** 当前使用的 Key：列表第一个（最近使用/添加的）。 */
     private String getApiKey() {
-        return getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_API, "");
+        List<String> keys = getKeys();
+        return keys.isEmpty() ? "" : keys.get(0);
+    }
+
+    /** 已保存的 Key 列表，最新在前，最多 3 个。 */
+    private List<String> getKeys() {
+        List<String> keys = new ArrayList<>();
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String raw = prefs.getString(KEY_KEYS, "");
+        if (!raw.isEmpty()) {
+            try {
+                JSONArray array = new JSONArray(raw);
+                for (int i = 0; i < array.length() && keys.size() < MAX_KEYS; i++) {
+                    String key = array.optString(i, "").trim();
+                    if (!key.isEmpty() && !keys.contains(key)) {
+                        keys.add(key);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (keys.isEmpty()) {
+            // 兼容旧版本只保存单个 Key 的数据
+            String legacy = prefs.getString(KEY_API, "").trim();
+            if (!legacy.isEmpty()) {
+                keys.add(legacy);
+            }
+        }
+        return keys;
+    }
+
+    private void saveKeys(List<String> keys) {
+        JSONArray array = new JSONArray();
+        for (String key : keys) {
+            array.put(key);
+        }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_KEYS, array.toString())
+                .apply();
+    }
+
+    /** 只显示首尾，避免整串 Key 暴露在屏幕上。 */
+    private String maskKey(String key) {
+        if (key.length() <= 10) {
+            return key.substring(0, Math.min(4, key.length())) + "****";
+        }
+        return key.substring(0, 6) + "****" + key.substring(key.length() - 4);
     }
 
     private LinearLayout.LayoutParams fullWidth() {
@@ -96,7 +148,7 @@ public class MainActivity extends Activity {
     private void showKeySetup() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(60, 200, 60, 60);
+        layout.setPadding(60, 120, 60, 60);
 
         TextView title = new TextView(this);
         title.setText("AI云");
@@ -105,11 +157,69 @@ public class MainActivity extends Activity {
         layout.addView(title, fullWidth());
 
         TextView hint = new TextView(this);
-        hint.setText("首次使用，请粘贴 DeepSeek API Key。\n保存后即可直接聊天，不需要其他设置。");
+        hint.setText("粘贴 DeepSeek API Key 后即可聊天。\n"
+                + "最多保存 3 个，最新的排最上面；点一下可切换，超出会自动删掉最下面的。");
         hint.setTextSize(13);
         hint.setTextColor(Color.parseColor("#8A9099"));
-        hint.setPadding(0, 20, 0, 28);
+        hint.setPadding(0, 20, 0, 24);
         layout.addView(hint, fullWidth());
+
+        List<String> keys = getKeys();
+        if (!keys.isEmpty()) {
+            TextView label = new TextView(this);
+            label.setText("已保存的 Key");
+            label.setTextSize(13);
+            label.setTextColor(Color.parseColor("#1F2329"));
+            label.setPadding(0, 0, 0, 4);
+            layout.addView(label, fullWidth());
+
+            for (int i = 0; i < keys.size(); i++) {
+                final int index = i;
+                final String key = keys.get(i);
+
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(0, 10, 0, 10);
+
+                TextView info = new TextView(this);
+                info.setText(maskKey(key) + (i == 0 ? "（使用中）" : ""));
+                info.setTextSize(14);
+                info.setTextColor(Color.parseColor(i == 0 ? "#1F2329" : "#4E5969"));
+                info.setPadding(0, 12, 0, 12);
+                LinearLayout.LayoutParams infoParams = new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                row.addView(info, infoParams);
+
+                Button del = new Button(this);
+                del.setText("删除");
+                del.setBackgroundColor(Color.TRANSPARENT);
+                del.setTextColor(Color.parseColor("#D4380D"));
+                del.setOnClickListener(v -> {
+                    List<String> current = getKeys();
+                    if (index < current.size()) {
+                        current.remove(index);
+                        saveKeys(current);
+                    }
+                    showKeySetup();
+                });
+                row.addView(del);
+
+                if (i > 0) {
+                    // 非当前 Key：点一下切换为当前使用
+                    info.setOnClickListener(v -> {
+                        List<String> current = getKeys();
+                        if (index < current.size()) {
+                            String selected = current.remove(index);
+                            current.add(0, selected);
+                            saveKeys(current);
+                        }
+                        openChat();
+                    });
+                }
+                layout.addView(row, fullWidth());
+            }
+        }
 
         EditText input = new EditText(this);
         input.setHint("sk-...");
@@ -124,7 +234,13 @@ public class MainActivity extends Activity {
                 input.setError("请填写 API Key");
                 return;
             }
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_API, value).apply();
+            List<String> current = getKeys();
+            current.remove(value);
+            current.add(0, value);
+            while (current.size() > MAX_KEYS) {
+                current.remove(current.size() - 1);
+            }
+            saveKeys(current);
             openChat();
         });
         layout.addView(save, fullWidth());
@@ -160,19 +276,14 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void resetKey() {
-            runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("更换 API Key")
-                    .setMessage("确定要重新填写 API Key 吗？")
-                    .setPositiveButton("确定", (dialog, which) -> {
-                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_API).apply();
-                        if (webView != null) {
-                            webView.destroy();
-                            webView = null;
-                        }
-                        showKeySetup();
-                    })
-                    .setNegativeButton("取消", null)
-                    .show());
+            // 打开 Key 管理页：可切换、删除或新增，不会直接清空已有 Key
+            runOnUiThread(() -> {
+                if (webView != null) {
+                    webView.destroy();
+                    webView = null;
+                }
+                showKeySetup();
+            });
         }
 
         @JavascriptInterface

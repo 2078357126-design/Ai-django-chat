@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6",
+  "versionCode": 8,
+  "versionName": "1.7",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "默认用简体中文回答；只有明确要求其他语言时才切换。"
+  "notes": "最多保存 3 个 API Key：最新的排最上面，可点选切换、手动删除，超出自动删掉最下面的。"
 }

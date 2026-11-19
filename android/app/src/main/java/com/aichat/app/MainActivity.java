@@ -172,6 +172,60 @@ public class MainActivity extends Activity {
         return key.substring(0, 6) + "****" + key.substring(key.length() - 4);
     }
 
+    /** 查询当前 Key 的余额（DeepSeek 余额接口）。 */
+    private void fetchBalance(final TextView view, final String apiKey) {
+        if (apiKey.isEmpty()) {
+            view.setText("余额：未配置 Key");
+            return;
+        }
+        new Thread(() -> {
+            String text;
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(
+                        "https://api.deepseek.com/user/balance").openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                int code = conn.getResponseCode();
+                if (code == 401) {
+                    text = "余额：Key 无效或已失效";
+                } else if (code >= 400) {
+                    text = "余额：获取失败 (HTTP " + code + ")";
+                } else {
+                    StringBuilder sb = new StringBuilder();
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(),
+                                    StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            sb.append(line);
+                        }
+                    }
+                    JSONObject object = new JSONObject(sb.toString());
+                    JSONArray infos = object.optJSONArray("balance_infos");
+                    if (infos == null || infos.length() == 0) {
+                        text = "余额：暂无数据";
+                    } else {
+                        JSONObject info = infos.getJSONObject(0);
+                        String currency = info.optString("currency", "CNY");
+                        String symbol = "USD".equalsIgnoreCase(currency) ? "$" : "¥";
+                        text = "余额：" + symbol + info.optString("total_balance", "0.00");
+                    }
+                }
+            } catch (Exception e) {
+                text = "余额：网络错误";
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+            final String result = text;
+            runOnUiThread(() -> view.setText(result));
+        }).start();
+    }
+
     private LinearLayout.LayoutParams fullWidth() {
         return new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -183,11 +237,42 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(60, 120, 60, 60);
 
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        Button back = new Button(this);
+        back.setText("返回");
+        back.setBackgroundColor(Color.TRANSPARENT);
+        back.setTextColor(Color.parseColor("#3370FF"));
+        back.setPadding(0, 0, 0, 0);
+        back.setOnClickListener(v -> {
+            if (getApiKey().isEmpty()) {
+                finish();
+            } else {
+                openChat();
+            }
+        });
+        topRow.addView(back);
+
         TextView title = new TextView(this);
         title.setText("AI云");
         title.setTextSize(24);
         title.setTextColor(Color.parseColor("#1F2329"));
-        layout.addView(title, fullWidth());
+        title.setPadding(Math.round(12 * getResources().getDisplayMetrics().density),
+                0, 0, 0);
+        topRow.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        layout.addView(topRow, fullWidth());
+
+        final TextView balanceView = new TextView(this);
+        balanceView.setText("余额：查询中…");
+        balanceView.setTextSize(13);
+        balanceView.setTextColor(Color.parseColor("#4E5969"));
+        balanceView.setPadding(0, 6, 0, 2);
+        layout.addView(balanceView, fullWidth());
+        fetchBalance(balanceView, getApiKey());
 
         TextView hint = new TextView(this);
         hint.setText("粘贴 DeepSeek API Key 后即可聊天。\n"

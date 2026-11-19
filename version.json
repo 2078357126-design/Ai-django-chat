@@ -1,6 +1,6 @@
 {
-  "versionCode": 13,
-  "versionName": "2.0",
+  "versionCode": 14,
+  "versionName": "2.1",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "版本号改为 x.0～x.9 递增，满 9 自动进位（1.9 之后是 2.0）。"
+  "notes": "Key 管理页新增「返回」按钮，并显示当前 Key 的余额。"
 }

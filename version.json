@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "1.8",
+  "versionCode": 10,
+  "versionName": "1.9",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "新增朗读：每条回复可朗读，右上角「语音」可挑自定义中文语音；没选就用系统默认。"
+  "notes": "修复语音：声明系统语音服务并给出明确提示；Key 管理页显示版本号。"
 }

@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private BroadcastReceiver updateReceiver;
     private TextToSpeech tts;
     private boolean ttsReady;
+    private boolean ttsFailed;
     private String pendingSpeech;
 
     @Override
@@ -259,7 +260,23 @@ public class MainActivity extends Activity {
         });
         layout.addView(save, fullWidth());
 
+        TextView version = new TextView(this);
+        version.setText("版本 " + appVersionName());
+        version.setTextSize(11);
+        version.setTextColor(Color.parseColor("#C0C4CC"));
+        version.setPadding(0, 18, 0, 0);
+        layout.addView(version, fullWidth());
+
         setContentView(layout);
+    }
+
+    private String appVersionName() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return info.versionName == null ? "" : info.versionName;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void openChat() {
@@ -354,6 +371,10 @@ public class MainActivity extends Activity {
         tts = new TextToSpeech(this, status -> {
             if (status != TextToSpeech.SUCCESS) {
                 ttsReady = false;
+                ttsFailed = true;
+                runOnUiThread(() -> Toast.makeText(this,
+                        "语音引擎初始化失败，请在系统设置中安装或启用文字转语音",
+                        Toast.LENGTH_LONG).show());
                 return;
             }
             ttsReady = true;
@@ -361,7 +382,7 @@ public class MainActivity extends Activity {
             if (pendingSpeech != null) {
                 String text = pendingSpeech;
                 pendingSpeech = null;
-                speakNow(text);
+                runOnUiThread(() -> speakNow(text));
             }
         });
     }
@@ -386,7 +407,14 @@ public class MainActivity extends Activity {
             }
         }
         // 没有自定义或自定义不可用：回到系统默认
-        tts.setLanguage(Locale.CHINA);
+        int result = tts.setLanguage(Locale.CHINA);
+        if (result == TextToSpeech.LANG_MISSING_DATA
+                || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+            tts.setLanguage(Locale.getDefault());
+            runOnUiThread(() -> Toast.makeText(this,
+                    "系统缺少中文语音包，已改用默认语言；可在系统设置里下载中文语音",
+                    Toast.LENGTH_LONG).show());
+        }
     }
 
     private void speakNow(String text) {
@@ -395,6 +423,10 @@ public class MainActivity extends Activity {
         }
         if (!ttsReady) {
             pendingSpeech = text;
+            Toast.makeText(this,
+                    ttsFailed ? "语音引擎不可用，请先安装系统语音服务"
+                            : "语音正在准备，请稍后再点一次",
+                    Toast.LENGTH_SHORT).show();
             return;
         }
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aiyun");
@@ -402,7 +434,13 @@ public class MainActivity extends Activity {
 
     private void showVoicePicker() {
         if (tts == null || !ttsReady) {
-            Toast.makeText(this, "语音引擎还在初始化，请稍后再试", Toast.LENGTH_SHORT).show();
+            new AlertDialog.Builder(this)
+                    .setTitle("语音")
+                    .setMessage(ttsFailed
+                            ? "没有找到可用的语音引擎。\n请到「设置 → 无障碍/语言 → 文字转语音」里启用或安装一个语音服务（如系统自带的语音引擎）。"
+                            : "语音引擎正在初始化，请过几秒再点一次。")
+                    .setPositiveButton("知道了", null)
+                    .show();
             return;
         }
         final List<Voice> voices = new ArrayList<>();
@@ -425,8 +463,11 @@ public class MainActivity extends Activity {
             }
         }
         if (voices.isEmpty()) {
-            Toast.makeText(this, "系统里没有可用的中文语音，请先在系统设置中安装",
-                    Toast.LENGTH_LONG).show();
+            new AlertDialog.Builder(this)
+                    .setTitle("语音")
+                    .setMessage("系统里没有可用的中文语音。\n请到「设置 → 语言 → 文字转语音」里下载中文语音包后再试。")
+                    .setPositiveButton("知道了", null)
+                    .show();
             return;
         }
 

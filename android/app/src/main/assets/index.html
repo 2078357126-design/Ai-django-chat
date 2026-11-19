@@ -225,7 +225,7 @@
 
   function saveHistory() {
     var data = turns.map(function (t) {
-      return { text: t.text, reply: t.reply, error: t.error };
+      return { text: t.text, reply: t.reply, error: t.error, proactive: t.proactive };
     });
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* 存储满时忽略 */ }
   }
@@ -273,6 +273,12 @@
   }
 
   function renderTurn(t) {
+    if (t.proactive) {
+      t.user.innerHTML = '';
+      t.user.style.display = 'none';
+      return;
+    }
+    t.user.style.display = '';
     t.user.innerHTML = '';
     t.user.classList.toggle('editing', t.editing);
 
@@ -316,7 +322,7 @@
     }
   }
 
-  function addTurn(text, reply, error) {
+  function addTurn(text, reply, error, proactive) {
     var el = document.createElement('div');
     el.className = 'turn';
 
@@ -336,6 +342,7 @@
       text: text,
       reply: reply || '',
       error: !!error,
+      proactive: !!proactive,
       editing: false,
       pending: false
     };
@@ -352,7 +359,7 @@
     if (!Array.isArray(saved) || !saved.length) return;
     hideTip();
     saved.forEach(function (item) {
-      addTurn(item.text || '', item.reply || '', !!item.error);
+      addTurn(item.text || '', item.reply || '', !!item.error, !!item.proactive);
     });
     scrollToBottom();
   }
@@ -409,6 +416,29 @@
     });
   }
 
+  var PROACTIVE_PROMPT = '（现在是你在主动找对方说话：按你的人格随口说一句，20 字以内，'
+      + '可以撒娇、吐槽或玩梗，不要提到这条提示，也不要重复上一句）';
+
+  function maybeProactive() {
+    if (document.hidden) return;
+    if (Math.random() > 0.3) return;
+    var t = addTurn('', '', false, true);
+    t.pending = true;
+    renderBot(t);
+    callChat(PROACTIVE_PROMPT).then(function (data) {
+      t.pending = false;
+      if (data && data.reply) {
+        t.reply = data.reply;
+        t.error = false;
+        renderBot(t);
+        saveHistory();
+        scrollToBottom();
+      } else {
+        removeTurn(t);
+      }
+    });
+  }
+
   messagesEl.addEventListener('click', function (e) {
     var el = e.target.closest('.turn');
     if (!el || !el._turn) return;
@@ -450,6 +480,9 @@
     ask(t).then(function () {
       sendBtn.disabled = false;
       sendBtn.textContent = '发送';
+      if (t.reply && !t.error) {
+        setTimeout(maybeProactive, 1500);
+      }
     });
   });
 

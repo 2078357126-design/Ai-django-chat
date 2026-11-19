@@ -1,6 +1,6 @@
 {
-  "versionCode": 14,
-  "versionName": "2.1",
+  "versionCode": 15,
+  "versionName": "2.2",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "Key 管理页新增「返回」按钮，并显示当前 Key 的余额。"
+  "notes": "人格升级：可爱会撒娇会生气、玩梗发表情包，有时会主动找你说话。"
 }

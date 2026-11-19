@@ -49,6 +49,9 @@ public class MainActivity extends Activity {
     private static final String KEY_API = "api_key";
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
+    private static final String SYSTEM_PROMPT =
+            "你是一个助手。除非用户明确要求使用其他语言，否则始终用简体中文回答；"
+            + "即使用户用简单英语提问，也要用中文回答。";
     private static final String VERSION_URL =
             "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
 
@@ -211,10 +214,17 @@ public class MainActivity extends Activity {
         try {
             JSONObject body = new JSONObject();
             body.put("model", MODEL);
+
+            JSONObject system = new JSONObject();
+            system.put("role", "system");
+            system.put("content", SYSTEM_PROMPT);
+
             JSONObject msg = new JSONObject();
             msg.put("role", "user");
             msg.put("content", message);
+
             JSONArray messages = new JSONArray();
+            messages.put(system);
             messages.put(msg);
             body.put("messages", messages);
 

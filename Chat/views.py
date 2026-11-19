@@ -137,6 +137,12 @@ def pwa_icon(request):
     return HttpResponse(_ICON_SVG, content_type='image/svg+xml')
 
 
+_SYSTEM_PROMPT = (
+    '你是一个助手。除非用户明确要求使用其他语言，否则始终用简体中文回答；'
+    '即使用户用简单英语提问，也要用中文回答。'
+)
+
+
 def _generate_reply(message, model):
     """调用 OpenAI 兼容接口，返回回复文本。"""
     client = OpenAI(
@@ -145,7 +151,10 @@ def _generate_reply(message, model):
     )
     completion = client.chat.completions.create(
         model=model,
-        messages=[{'role': 'user', 'content': message}],
+        messages=[
+            {'role': 'system', 'content': _SYSTEM_PROMPT},
+            {'role': 'user', 'content': message},
+        ],
     )
     return completion.choices[0].message.content or ''
 

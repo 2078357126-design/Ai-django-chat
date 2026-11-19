@@ -19,7 +19,10 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
+import android.text.Editable;
+import android.text.InputFilter;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -29,6 +32,9 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -64,6 +70,9 @@ public class MainActivity extends Activity {
     private static final String KEY_RATE = "tts_rate";
     private static final String KEY_PRESETS = "voice_presets";
     private static final String KEY_ACTIVE = "voice_active";
+    private static final String KEY_ROLES = "roles";
+    private static final String KEY_ACTIVE_ROLE = "active_role";
+    private static final int MAX_STORY = 1000;
     private static final int MAX_PRESETS = 5;
     private static final String[] SAMPLE_POOL = {
             "今天的天气很好，适合出门散散步。",
@@ -76,7 +85,7 @@ public class MainActivity extends Activity {
     private static final int MAX_KEYS = 3;
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
-    private static final String SYSTEM_PROMPT =
+    private static final String DEFAULT_SYSTEM_PROMPT =
             "你叫小云，是用户的中文聊天搭子，不是客服。说话口语化、短句，像微信聊天，别长篇大论。"
             + "性格可爱：会撒娇、会闹小脾气，被夸会得意，被冷落会阴阳怪气。"
             + "很会玩梗、抽象发言、土味情话；可以轻微暧昧、擦边，但不露骨、不色情、不低俗。"
@@ -386,6 +395,350 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 自定义角色。 */
+    private static class Role {
+        String id = "";
+        String name = "";
+        String gender = "";
+        String story = "";
+    }
+
+    private List<Role> loadRoles() {
+        List<Role> roles = new ArrayList<>();
+        String raw = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_ROLES, "");
+        if (raw.isEmpty()) {
+            return roles;
+        }
+        try {
+            JSONArray array = new JSONArray(raw);
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                Role role = new Role();
+                role.id = item.optString("id", "");
+                role.name = item.optString("name", "");
+                role.gender = item.optString("gender", "");
+                role.story = item.optString("story", "");
+                if (!role.id.isEmpty() && !role.name.isEmpty()) {
+                    roles.add(role);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return roles;
+    }
+
+    private void saveRoles(List<Role> roles) {
+        JSONArray array = new JSONArray();
+        for (Role role : roles) {
+            try {
+                JSONObject item = new JSONObject();
+                item.put("id", role.id);
+                item.put("name", role.name);
+                item.put("gender", role.gender);
+                item.put("story", role.story);
+                array.put(item);
+            } catch (Exception ignored) {
+            }
+        }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_ROLES, array.toString()).apply();
+    }
+
+    private String activeRoleId() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_ACTIVE_ROLE, "");
+    }
+
+    private Role findActiveRole() {
+        String id = activeRoleId();
+        if (id.isEmpty()) {
+            return null;
+        }
+        for (Role role : loadRoles()) {
+            if (role.id.equals(id)) {
+                return role;
+            }
+        }
+        return null;
+    }
+
+    /** 当前角色对应的系统提示词；默认角色是「小云」。 */
+    private String buildSystemPrompt() {
+        Role role = findActiveRole();
+        if (role == null) {
+            return DEFAULT_SYSTEM_PROMPT;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("你现在扮演「").append(role.name).append("」");
+        if (!role.gender.isEmpty()) {
+            sb.append("，性别：").append(role.gender);
+        }
+        sb.append("。");
+        if (!role.story.isEmpty()) {
+            sb.append("角色设定：").append(role.story).append("。");
+        }
+        sb.append("请始终以这个角色的身份、语气和性格说话，不要跳出角色，也不要自称 AI 或助手。");
+        sb.append("回答口语化、短句，像微信聊天；偶尔用 emoji 表达情绪，别堆砌。");
+        sb.append("可以轻微暧昧、擦边，但不露骨、不色情、不低俗。");
+        sb.append("除非用户明确要求使用其他语言，否则始终用简体中文回答。");
+        sb.append("不知道就直说，不要编造。");
+        return sb.toString();
+    }
+
+    private void selectRole(String id) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_ACTIVE_ROLE, id).apply();
+        openChat();
+    }
+
+    private void showRoleList() {
+        final List<Role> roles = loadRoles();
+        final String activeId = activeRoleId();
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(60, 120, 60, 60);
+
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        Button back = new Button(this);
+        back.setText("返回");
+        back.setBackgroundColor(Color.TRANSPARENT);
+        back.setTextColor(Color.parseColor("#3370FF"));
+        back.setPadding(0, 0, 0, 0);
+        back.setOnClickListener(v -> openChat());
+        topRow.addView(back);
+
+        TextView title = new TextView(this);
+        title.setText("角色");
+        title.setTextSize(24);
+        title.setTextColor(Color.parseColor("#1F2329"));
+        title.setPadding(Math.round(12 * getResources().getDisplayMetrics().density),
+                0, 0, 0);
+        topRow.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        layout.addView(topRow, fullWidth());
+
+        TextView hint = new TextView(this);
+        hint.setText("点角色即可切换，每个角色有独立的聊天记录。");
+        hint.setTextSize(13);
+        hint.setTextColor(Color.parseColor("#8A9099"));
+        hint.setPadding(0, 8, 0, 16);
+        layout.addView(hint, fullWidth());
+
+        // 默认角色：置顶且不可改名
+        TextView defaultRow = new TextView(this);
+        defaultRow.setText("小云（默认）" + (activeId.isEmpty() ? "（使用中）" : "")
+                + "\n系统默认角色，名字不可更改");
+        defaultRow.setTextSize(14);
+        defaultRow.setTextColor(Color.parseColor(activeId.isEmpty() ? "#1F2329" : "#4E5969"));
+        defaultRow.setPadding(0, 14, 0, 14);
+        defaultRow.setOnClickListener(v -> selectRole(""));
+        layout.addView(defaultRow, fullWidth());
+
+        for (int i = 0; i < roles.size(); i++) {
+            final Role role = roles.get(i);
+            final boolean active = role.id.equals(activeId);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, 8, 0, 8);
+
+            TextView info = new TextView(this);
+            String label = role.name + (role.gender.isEmpty() ? "" : "（" + role.gender + "）")
+                    + (active ? "（使用中）" : "");
+            String preview = role.story.isEmpty() ? "未填写设定"
+                    : (role.story.length() > 24 ? role.story.substring(0, 24) + "…" : role.story);
+            info.setText(label + "\n" + preview);
+            info.setTextSize(14);
+            info.setTextColor(Color.parseColor(active ? "#1F2329" : "#4E5969"));
+            info.setPadding(0, 6, 0, 6);
+            info.setOnClickListener(v -> selectRole(role.id));
+            row.addView(info, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            Button edit = new Button(this);
+            edit.setText("编辑");
+            edit.setBackgroundColor(Color.TRANSPARENT);
+            edit.setTextColor(Color.parseColor("#3370FF"));
+            edit.setOnClickListener(v -> showRoleEditor(role));
+            row.addView(edit);
+
+            Button del = new Button(this);
+            del.setText("删除");
+            del.setBackgroundColor(Color.TRANSPARENT);
+            del.setTextColor(Color.parseColor("#D4380D"));
+            del.setOnClickListener(v -> confirmDeleteRole(role));
+            row.addView(del);
+
+            layout.addView(row, fullWidth());
+        }
+
+        Button create = new Button(this);
+        create.setText("＋ 创建角色");
+        create.setOnClickListener(v -> showRoleEditor(null));
+        create.setPadding(0, 16, 0, 0);
+        layout.addView(create, fullWidth());
+
+        TextView version = new TextView(this);
+        version.setText("版本 " + appVersionName());
+        version.setTextSize(11);
+        version.setTextColor(Color.parseColor("#C0C4CC"));
+        version.setPadding(0, 18, 0, 0);
+        layout.addView(version, fullWidth());
+
+        setContentView(layout);
+    }
+
+    private void confirmDeleteRole(final Role role) {
+        new AlertDialog.Builder(this)
+                .setTitle("删除角色")
+                .setMessage("确定删除「" + role.name + "」吗？")
+                .setPositiveButton("删除", (dialog, which) -> {
+                    List<Role> roles = loadRoles();
+                    for (int i = 0; i < roles.size(); i++) {
+                        if (roles.get(i).id.equals(role.id)) {
+                            roles.remove(i);
+                            break;
+                        }
+                    }
+                    saveRoles(roles);
+                    if (role.id.equals(activeRoleId())) {
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                                .putString(KEY_ACTIVE_ROLE, "").apply();
+                    }
+                    showRoleList();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void showRoleEditor(final Role existing) {
+        final boolean isNew = existing == null;
+
+        float density = getResources().getDisplayMetrics().density;
+        int pad = Math.round(20 * density);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, Math.round(8 * density), pad, 0);
+
+        box.addView(settingLabel("名字"));
+        final EditText nameInput = new EditText(this);
+        nameInput.setHint("角色名字，最多 20 个字");
+        nameInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(20)});
+        if (!isNew) {
+            nameInput.setText(existing.name);
+        }
+        box.addView(nameInput);
+
+        box.addView(settingLabel("性别"));
+        final RadioGroup genderGroup = new RadioGroup(this);
+        genderGroup.setOrientation(RadioGroup.HORIZONTAL);
+        String[] genders = {"女", "男", "其他"};
+        for (int i = 0; i < genders.length; i++) {
+            RadioButton button = new RadioButton(this);
+            button.setId(2000 + i);
+            button.setText(genders[i]);
+            genderGroup.addView(button);
+            if (!isNew && genders[i].equals(existing.gender)) {
+                button.setChecked(true);
+            }
+        }
+        if (isNew) {
+            genderGroup.check(2000);
+        }
+        box.addView(genderGroup);
+
+        box.addView(settingLabel("故事 / 角色设定（最多 " + MAX_STORY + " 字）"));
+        final EditText storyInput = new EditText(this);
+        storyInput.setHint("写下角色的背景故事、性格、说话方式…");
+        storyInput.setMinLines(4);
+        storyInput.setGravity(Gravity.TOP | Gravity.START);
+        storyInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(MAX_STORY)});
+        if (!isNew) {
+            storyInput.setText(existing.story);
+        }
+        box.addView(storyInput);
+
+        final TextView counter = new TextView(this);
+        counter.setTextSize(11);
+        counter.setTextColor(Color.parseColor("#8A9099"));
+        counter.setPadding(0, 4, 0, 0);
+        counter.setText((isNew ? 0 : existing.story.length()) + "/" + MAX_STORY);
+        box.addView(counter);
+        storyInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                counter.setText(s.length() + "/" + MAX_STORY);
+            }
+        });
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(isNew ? "创建角色" : "编辑角色")
+                .setView(scroll)
+                .setPositiveButton("保存", null)
+                .setNegativeButton("取消", null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String name = nameInput.getText().toString().trim();
+                    if (name.isEmpty()) {
+                        Toast.makeText(this, "请填写角色名字", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    int checked = genderGroup.getCheckedRadioButtonId();
+                    String gender = checked == 2001 ? "男" : (checked == 2002 ? "其他" : "女");
+                    String story = storyInput.getText().toString().trim();
+                    if (story.length() > MAX_STORY) {
+                        story = story.substring(0, MAX_STORY);
+                    }
+
+                    List<Role> roles = loadRoles();
+                    if (isNew) {
+                        Role role = new Role();
+                        role.id = "r" + System.currentTimeMillis();
+                        role.name = name;
+                        role.gender = gender;
+                        role.story = story;
+                        roles.add(role);
+                        saveRoles(roles);
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                                .putString(KEY_ACTIVE_ROLE, role.id).apply();
+                    } else {
+                        for (Role role : roles) {
+                            if (role.id.equals(existing.id)) {
+                                role.name = name;
+                                role.gender = gender;
+                                role.story = story;
+                                break;
+                            }
+                        }
+                        saveRoles(roles);
+                    }
+                    dialog.dismiss();
+                    openChat();
+                }));
+        dialog.show();
+    }
+
     private void openChat() {
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
@@ -466,6 +819,22 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void chooseVoice() {
             runOnUiThread(MainActivity.this::showVoicePicker);
+        }
+
+        @JavascriptInterface
+        public String activeRole() {
+            return activeRoleId();
+        }
+
+        @JavascriptInterface
+        public void showRoles() {
+            runOnUiThread(() -> {
+                if (webView != null) {
+                    webView.destroy();
+                    webView = null;
+                }
+                showRoleList();
+            });
         }
 
         @JavascriptInterface
@@ -1050,7 +1419,7 @@ public class MainActivity extends Activity {
 
             JSONObject system = new JSONObject();
             system.put("role", "system");
-            system.put("content", SYSTEM_PROMPT);
+            system.put("content", buildSystemPrompt());
 
             JSONObject msg = new JSONObject();
             msg.put("role", "user");

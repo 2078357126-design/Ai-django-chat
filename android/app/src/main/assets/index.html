@@ -174,6 +174,7 @@
 <header>
   <h1>AI云</h1>
   <div class="header-actions">
+    <button id="roles" type="button">角色</button>
     <button id="voice" type="button">语音</button>
     <button id="clear" type="button">清空</button>
     <button id="reset" type="button">更换 Key</button>
@@ -218,7 +219,15 @@
     });
   }
 
-  var STORAGE_KEY = 'aichat_history';
+  var roleId = '';
+
+  function storageKey() {
+    if (!roleId && window.Android && typeof Android.activeRole === 'function') {
+      roleId = Android.activeRole() || '';
+    }
+    return roleId ? 'aichat_' + roleId : 'aichat_history';
+  }
+
   var turns = [];
 
   function scrollToBottom() {
@@ -230,7 +239,7 @@
       return { text: t.text, reply: t.reply, error: t.error,
                proactive: t.proactive, sticker: t.sticker };
     });
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* 存储满时忽略 */ }
+    try { localStorage.setItem(storageKey(), JSON.stringify(data)); } catch (e) { /* 存储满时忽略 */ }
   }
 
   function showTip() {
@@ -416,7 +425,7 @@
 
   function restoreHistory() {
     var saved;
-    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch (e) { saved = []; }
+    try { saved = JSON.parse(localStorage.getItem(storageKey()) || '[]'); } catch (e) { saved = []; }
     if (!Array.isArray(saved) || !saved.length) return;
     hideTip();
     saved.forEach(function (item) {
@@ -437,7 +446,7 @@
 
   function clearAll() {
     turns = [];
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(storageKey());
     showTip();
   }
 
@@ -560,6 +569,14 @@
     }
   });
 
+  document.getElementById('roles').addEventListener('click', function () {
+    if (window.Android && Android.showRoles) {
+      Android.showRoles();
+    } else {
+      alert('角色管理请在 App 内使用');
+    }
+  });
+
   document.getElementById('voice').addEventListener('click', function () {
     if (window.Android && Android.chooseVoice) {
       Android.chooseVoice();
@@ -581,7 +598,8 @@
     Android.resetKey();
   });
 
-  restoreHistory();
+  // 延迟一拍，确保原生桥接已就绪后再读取角色和记录
+  setTimeout(restoreHistory, 0);
 </script>
 </body>
 </html>

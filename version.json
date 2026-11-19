@@ -1,6 +1,6 @@
 {
-  "versionCode": 17,
-  "versionName": "2.4",
+  "versionCode": 18,
+  "versionName": "2.5",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "朗读会按文字情绪自动调整音调和语速，听起来更有起伏。"
+  "notes": "新增角色系统：可创建无限个角色（名字、性别、1000 字设定），每个角色独立聊天记录；小云为默认角色置顶且不可改名。"
 }

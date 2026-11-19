@@ -47,6 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.Set;
 
 /**
@@ -61,6 +62,17 @@ public class MainActivity extends Activity {
     private static final String KEY_VOICE = "tts_voice";
     private static final String KEY_PITCH = "tts_pitch";
     private static final String KEY_RATE = "tts_rate";
+    private static final String KEY_PRESETS = "voice_presets";
+    private static final String KEY_ACTIVE = "voice_active";
+    private static final int MAX_PRESETS = 5;
+    private static final String[] SAMPLE_POOL = {
+            "今天的天气很好，适合出门散散步。",
+            "春眠不觉晓，处处闻啼鸟，夜来风雨声。",
+            "山重水复疑无路，柳暗花明又一村。",
+            "海内存知己，天涯若比邻，无为在歧路。",
+            "读书破万卷，下笔如有神，愿君多采撷。",
+            "生活不止眼前的苟且，还有诗和远方。",
+    };
     private static final int MAX_KEYS = 3;
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
@@ -77,6 +89,7 @@ public class MainActivity extends Activity {
     private boolean ttsReady;
     private boolean ttsFailed;
     private String pendingSpeech;
+    private AlertDialog voiceDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -384,8 +397,8 @@ public class MainActivity extends Activity {
                 return;
             }
             ttsReady = true;
-            applySavedVoice();
-            applySavedParams();
+            migrateLegacyPreset();
+            applyActivePreset();
             if (pendingSpeech != null) {
                 String text = pendingSpeech;
                 pendingSpeech = null;
@@ -394,26 +407,126 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** 有自定义语音就用自定义的，否则用系统默认中文语音。 */
-    private void applySavedVoice() {
-        String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_VOICE, "");
+    /** 已保存的自定义音色。 */
+    private static class Preset {
+        String name = "";
+        String voice = "";
+        float pitch = 1f;
+        float rate = 1f;
+    }
+
+    private List<Preset> loadPresets() {
+        List<Preset> list = new ArrayList<>();
+        String raw = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_PRESETS, "");
+        if (raw.isEmpty()) {
+            return list;
+        }
+        try {
+            JSONArray array = new JSONArray(raw);
+            for (int i = 0; i < array.length() && list.size() < MAX_PRESETS; i++) {
+                JSONObject item = array.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                Preset preset = new Preset();
+                preset.name = item.optString("name", "音色");
+                preset.voice = item.optString("voice", "");
+                preset.pitch = (float) item.optDouble("pitch", 1);
+                preset.rate = (float) item.optDouble("rate", 1);
+                list.add(preset);
+            }
+        } catch (Exception ignored) {
+        }
+        return list;
+    }
+
+    private void savePresets(List<Preset> presets) {
+        JSONArray array = new JSONArray();
+        for (Preset preset : presets) {
+            try {
+                JSONObject item = new JSONObject();
+                item.put("name", preset.name);
+                item.put("voice", preset.voice);
+                item.put("pitch", preset.pitch);
+                item.put("rate", preset.rate);
+                array.put(item);
+            } catch (Exception ignored) {
+            }
+        }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_PRESETS, array.toString())
+                .apply();
+    }
+
+    /** 把 1.10 之前保存的单个语音设置迁移成一个音色。 */
+    private void migrateLegacyPreset() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (prefs.contains(KEY_PRESETS)) {
+            return;
+        }
+        String voice = prefs.getString(KEY_VOICE, "");
+        float pitch = prefs.getFloat(KEY_PITCH, 1f);
+        float rate = prefs.getFloat(KEY_RATE, 1f);
+        if (voice.isEmpty() && Math.abs(pitch - 1f) < 0.01f && Math.abs(rate - 1f) < 0.01f) {
+            return;
+        }
+        Preset preset = new Preset();
+        preset.name = "音色 1";
+        preset.voice = voice;
+        preset.pitch = pitch;
+        preset.rate = rate;
+        List<Preset> list = new ArrayList<>();
+        list.add(preset);
+        savePresets(list);
+        prefs.edit()
+                .putInt(KEY_ACTIVE, 0)
+                .remove(KEY_VOICE)
+                .remove(KEY_PITCH)
+                .remove(KEY_RATE)
+                .apply();
+    }
+
+    /** 应用当前选中的音色，没有就退回系统默认。 */
+    private void applyActivePreset() {
         if (tts == null) {
             return;
         }
-        if (!saved.isEmpty()) {
+        List<Preset> presets = loadPresets();
+        int index = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_ACTIVE, -1);
+        if (index >= 0 && index < presets.size()) {
+            applyPreset(presets.get(index));
+        } else {
+            applyDefaultVoice();
+        }
+    }
+
+    private void applyPreset(Preset preset) {
+        if (tts == null) {
+            return;
+        }
+        boolean applied = false;
+        if (!preset.voice.isEmpty()) {
             Set<Voice> voices = tts.getVoices();
             if (voices != null) {
                 for (Voice voice : voices) {
-                    if (voice.getName().equals(saved)) {
-                        if (tts.setVoice(voice) == TextToSpeech.SUCCESS) {
-                            return;
-                        }
+                    if (voice.getName().equals(preset.voice)) {
+                        applied = tts.setVoice(voice) == TextToSpeech.SUCCESS;
                         break;
                     }
                 }
             }
         }
-        // 没有自定义或自定义不可用：回到系统默认
+        if (!applied) {
+            tts.setLanguage(Locale.CHINA);
+        }
+        tts.setPitch(preset.pitch);
+        tts.setSpeechRate(preset.rate);
+    }
+
+    private void applyDefaultVoice() {
+        if (tts == null) {
+            return;
+        }
         int result = tts.setLanguage(Locale.CHINA);
         if (result == TextToSpeech.LANG_MISSING_DATA
                 || result == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -422,6 +535,8 @@ public class MainActivity extends Activity {
                     "系统缺少中文语音包，已改用默认语言；可在系统设置里下载中文语音",
                     Toast.LENGTH_LONG).show());
         }
+        tts.setPitch(1f);
+        tts.setSpeechRate(1f);
     }
 
     private void speakNow(String text) {
@@ -450,33 +565,138 @@ public class MainActivity extends Activity {
                     .show();
             return;
         }
+        final SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        final List<Preset> presets = loadPresets();
+        final int active = prefs.getInt(KEY_ACTIVE, -1);
+
+        float density = getResources().getDisplayMetrics().density;
+        int pad = Math.round(20 * density);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, Math.round(8 * density), pad, 0);
+
+        TextView defaultRow = new TextView(this);
+        defaultRow.setText("系统默认音色" + (active < 0 ? "（使用中）" : ""));
+        defaultRow.setTextSize(14);
+        defaultRow.setTextColor(Color.parseColor(active < 0 ? "#1F2329" : "#4E5969"));
+        defaultRow.setPadding(0, 16, 0, 16);
+        defaultRow.setOnClickListener(v -> {
+            prefs.edit().putInt(KEY_ACTIVE, -1).apply();
+            applyDefaultVoice();
+            reopenVoiceManager();
+        });
+        box.addView(defaultRow);
+
+        box.addView(settingLabel("已保存的音色（最多 " + MAX_PRESETS + " 个）"));
+
+        if (presets.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("还没有自定义音色，点下方「添加新音色」创建一个。");
+            empty.setTextSize(13);
+            empty.setTextColor(Color.parseColor("#8A9099"));
+            empty.setPadding(0, 4, 0, 10);
+            box.addView(empty);
+        }
+
+        for (int i = 0; i < presets.size(); i++) {
+            final int index = i;
+            final Preset preset = presets.get(i);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, 8, 0, 8);
+
+            TextView info = new TextView(this);
+            info.setText(preset.name + (i == active ? "（使用中）" : "")
+                    + "\n音调 " + fmt1(preset.pitch) + " · 语速 " + fmt1(preset.rate));
+            info.setTextSize(14);
+            info.setTextColor(Color.parseColor(i == active ? "#1F2329" : "#4E5969"));
+            info.setPadding(0, 6, 0, 6);
+            info.setOnClickListener(v -> {
+                prefs.edit().putInt(KEY_ACTIVE, index).apply();
+                applyPreset(preset);
+                reopenVoiceManager();
+            });
+            row.addView(info, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            Button del = new Button(this);
+            del.setText("删除");
+            del.setBackgroundColor(Color.TRANSPARENT);
+            del.setTextColor(Color.parseColor("#D4380D"));
+            del.setOnClickListener(v -> {
+                List<Preset> current = loadPresets();
+                if (index >= current.size()) {
+                    return;
+                }
+                current.remove(index);
+                savePresets(current);
+                int act = prefs.getInt(KEY_ACTIVE, -1);
+                if (act == index) {
+                    act = current.isEmpty() ? -1 : Math.min(index, current.size() - 1);
+                } else if (act > index) {
+                    act = act - 1;
+                }
+                prefs.edit().putInt(KEY_ACTIVE, act).apply();
+                if (act >= 0 && act < current.size()) {
+                    applyPreset(current.get(act));
+                } else {
+                    applyDefaultVoice();
+                }
+                reopenVoiceManager();
+            });
+            row.addView(del);
+
+            box.addView(row);
+        }
+
+        Button add = new Button(this);
+        boolean full = presets.size() >= MAX_PRESETS;
+        add.setText(full ? "已达上限 " + MAX_PRESETS + " 个，请先删除一个" : "＋ 添加新音色");
+        add.setEnabled(!full);
+        add.setOnClickListener(v -> {
+            if (loadPresets().size() >= MAX_PRESETS) {
+                Toast.makeText(this, "最多保存 5 个音色，请先删除一个", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            showVoiceEditor();
+        });
+        box.addView(add);
+
+        voiceDialog = new AlertDialog.Builder(this)
+                .setTitle("音色")
+                .setView(box)
+                .setNegativeButton("关闭", null)
+                .create();
+        voiceDialog.show();
+    }
+
+    private void reopenVoiceManager() {
+        if (voiceDialog != null) {
+            voiceDialog.dismiss();
+            voiceDialog = null;
+        }
+        showVoicePicker();
+    }
+
+    private void showVoiceEditor() {
         final List<Voice> voices = new ArrayList<>();
         final List<String> names = new ArrayList<>();
         names.add("系统默认");
-        String currentVoice = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_VOICE, "");
-        int selectedIndex = 0;
-
-        Set<Voice> all = tts.getVoices();
+        Set<Voice> all = tts == null ? null : tts.getVoices();
         if (all != null) {
             for (Voice voice : all) {
-                if (!"zh".equals(voice.getLocale().getLanguage())) {
-                    continue;
-                }
-                voices.add(voice);
-                names.add(voice.getName() + " · " + voice.getLocale().getDisplayName());
-                if (voice.getName().equals(currentVoice)) {
-                    selectedIndex = voices.size();
+                if ("zh".equals(voice.getLocale().getLanguage())) {
+                    voices.add(voice);
+                    names.add(voice.getName());
                 }
             }
         }
-        if (voices.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("语音")
-                    .setMessage("系统里没有可用的中文语音。\n请到「设置 → 语言 → 文字转语音」里下载中文语音包后再试。")
-                    .setPositiveButton("知道了", null)
-                    .show();
-            return;
-        }
+
+        final float[] pitch = {1f};
+        final float[] rate = {1f};
 
         float density = getResources().getDisplayMetrics().density;
         int pad = Math.round(20 * density);
@@ -487,20 +707,14 @@ public class MainActivity extends Activity {
 
         box.addView(settingLabel("音色"));
         final Spinner spinner = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, names);
-        spinner.setAdapter(adapter);
-        spinner.setSelection(selectedIndex);
+        spinner.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, names));
         box.addView(spinner);
-
-        final SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        final float[] pitch = {prefs.getFloat(KEY_PITCH, 1f)};
-        final float[] rate = {prefs.getFloat(KEY_RATE, 1f)};
 
         final TextView pitchLabel = settingLabel("音调：" + fmt1(pitch[0]));
         SeekBar pitchBar = new SeekBar(this);
         pitchBar.setMax(15);
-        pitchBar.setProgress(Math.round((pitch[0] - 0.5f) * 10));
+        pitchBar.setProgress(5);
         pitchBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -523,7 +737,7 @@ public class MainActivity extends Activity {
         final TextView rateLabel = settingLabel("语速：" + fmt1(rate[0]));
         SeekBar rateBar = new SeekBar(this);
         rateBar.setMax(15);
-        rateBar.setProgress(Math.round((rate[0] - 0.5f) * 10));
+        rateBar.setProgress(5);
         rateBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -544,21 +758,34 @@ public class MainActivity extends Activity {
         box.addView(rateBar);
 
         final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("语音设置")
+                .setTitle("添加音色")
                 .setView(box)
-                .setPositiveButton("保存并试听", (d, w) -> {
-                    saveVoiceChoice(spinner.getSelectedItemPosition(), voices);
-                    saveVoiceParams(pitch[0], rate[0]);
+                .setPositiveButton("保存", (d, w) -> {
+                    List<Preset> presets = loadPresets();
+                    if (presets.size() >= MAX_PRESETS) {
+                        Toast.makeText(this, "最多保存 5 个音色，请先删除一个",
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Preset preset = new Preset();
+                    preset.name = "音色 " + (presets.size() + 1);
+                    int which = spinner.getSelectedItemPosition();
+                    preset.voice = (which <= 0 || which - 1 >= voices.size())
+                            ? "" : voices.get(which - 1).getName();
+                    preset.pitch = pitch[0];
+                    preset.rate = rate[0];
+                    presets.add(preset);
+                    savePresets(presets);
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putInt(KEY_ACTIVE, presets.size() - 1).apply();
+                    applyPreset(preset);
                     previewSpeak();
+                    reopenVoiceManager();
                 })
                 .setNeutralButton("试听", null)
-                .setNegativeButton("取消", (d, w) -> {
-                    applySavedVoice();
-                    applySavedParams();
-                })
+                .setNegativeButton("取消", (d, w) -> applyActivePreset())
                 .create();
 
-        // 试听按钮默认会关闭对话框，这里改成只试听不关闭
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
                 .setOnClickListener(v -> {
                     applyVoiceChoice(spinner.getSelectedItemPosition(), voices);
@@ -566,6 +793,8 @@ public class MainActivity extends Activity {
                     previewSpeak();
                 }));
         dialog.show();
+        // 打开时先随机读一段 15 字，方便听当前音色
+        previewSpeak();
     }
 
     private TextView settingLabel(String text) {
@@ -593,28 +822,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void saveVoiceChoice(int which, List<Voice> voices) {
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        if (which <= 0) {
-            prefs.edit().remove(KEY_VOICE).apply();
-            if (tts != null) {
-                tts.setLanguage(Locale.CHINA);
-            }
-            return;
-        }
-        if (which - 1 >= voices.size()) {
-            return;
-        }
-        Voice voice = voices.get(which - 1);
-        if (tts != null && tts.setVoice(voice) != TextToSpeech.SUCCESS) {
-            Toast.makeText(this, "这个语音不可用，继续使用默认语音", Toast.LENGTH_SHORT).show();
-            prefs.edit().remove(KEY_VOICE).apply();
-            tts.setLanguage(Locale.CHINA);
-            return;
-        }
-        prefs.edit().putString(KEY_VOICE, voice.getName()).apply();
-    }
-
     private void setVoiceParams(float pitch, float rate) {
         if (tts == null) {
             return;
@@ -623,21 +830,15 @@ public class MainActivity extends Activity {
         tts.setSpeechRate(rate);
     }
 
-    private void saveVoiceParams(float pitch, float rate) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putFloat(KEY_PITCH, pitch)
-                .putFloat(KEY_RATE, rate)
-                .apply();
-    }
-
-    private void applySavedParams() {
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        setVoiceParams(prefs.getFloat(KEY_PITCH, 1f), prefs.getFloat(KEY_RATE, 1f));
+    /** 随机取一段 15 个字用于试听。 */
+    private String randomSample() {
+        String text = SAMPLE_POOL[new Random().nextInt(SAMPLE_POOL.length)];
+        return text.length() > 15 ? text.substring(0, 15) : text;
     }
 
     private void previewSpeak() {
         if (tts != null && ttsReady) {
-            tts.speak("你好，我是 AI 云", TextToSpeech.QUEUE_FLUSH, null, "sample");
+            tts.speak(randomSample(), TextToSpeech.QUEUE_FLUSH, null, "sample");
         }
     }
 

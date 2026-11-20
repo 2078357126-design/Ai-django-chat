@@ -94,6 +94,16 @@ public class MainActivity extends Activity {
             + "不知道就直说，不要编造。";
     private static final String VERSION_URL =
             "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
+    private static final String VERSION_URL_JSDELIVR =
+            "https://cdn.jsdelivr.net/gh/2078357126-design/Ai-django-chat@main/version.json";
+    private static final String VERSION_URL_GHPROXY =
+            "https://ghproxy.net/https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
+    private static final String APK_URL =
+            "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk";
+    private static final String APK_URL_JSDELIVR =
+            "https://cdn.jsdelivr.net/gh/2078357126-design/Ai-django-chat@main/dist-android/AIChat-android.apk";
+    private static final String APK_URL_GHPROXY =
+            "https://ghproxy.net/https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk";
 
     private WebView webView;
     private long updateDownloadId = -1;
@@ -1501,13 +1511,32 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 读取远端版本信息，失败返回 null。 */
+    /** 依次尝试直连和镜像，任一成功即返回；下载地址也换成对应的镜像。 */
     private JSONObject fetchRemoteVersion() {
+        String[][] sources = {
+                {VERSION_URL, APK_URL},
+                {VERSION_URL_GHPROXY, APK_URL_GHPROXY},
+                {VERSION_URL_JSDELIVR, APK_URL_JSDELIVR},
+        };
+        for (String[] source : sources) {
+            JSONObject info = fetchJson(source[0]);
+            if (info != null) {
+                try {
+                    info.put("url", source[1]);
+                } catch (Exception ignored) {
+                }
+                return info;
+            }
+        }
+        return null;
+    }
+
+    private JSONObject fetchJson(String url) {
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(VERSION_URL).openConnection();
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
             conn.setRequestProperty("Cache-Control", "no-cache");
             if (conn.getResponseCode() >= 400) {
                 return null;

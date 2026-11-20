@@ -108,6 +108,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private long updateDownloadId = -1;
     private BroadcastReceiver updateReceiver;
+    private long lastUpdateCheck;
     private TextToSpeech tts;
     private boolean ttsReady;
     private boolean ttsFailed;
@@ -124,7 +125,19 @@ public class MainActivity extends Activity {
         } else {
             openChat();
         }
+        lastUpdateCheck = System.currentTimeMillis();
         new Thread(this::checkForUpdate).start();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 每次回到前台也检查一次（10 分钟内不重复），避免只有冷启动才检查
+        long now = System.currentTimeMillis();
+        if (now - lastUpdateCheck > 10 * 60 * 1000L) {
+            lastUpdateCheck = now;
+            new Thread(this::checkForUpdate).start();
+        }
     }
 
     @Override

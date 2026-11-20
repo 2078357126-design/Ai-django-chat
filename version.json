@@ -1,6 +1,6 @@
 {
-  "versionCode": 20,
-  "versionName": "2.7",
+  "versionCode": 22,
+  "versionName": "2.9",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "检查更新增加镜像线路（ghproxy / jsDelivr），网络不通时自动换线路，减少「没反应」。"
+  "notes": "打开 App 或切回前台都会检查更新（10 分钟内不重复），并自动切换镜像线路。"
 }

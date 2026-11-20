@@ -45,8 +45,6 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.core.content.FileProvider;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -843,8 +841,7 @@ public class MainActivity extends Activity {
                 throw new IllegalStateException("无法创建缓存目录");
             }
             File target = new File(dir, "capture.jpg");
-            cameraOutputUri = FileProvider.getUriForFile(this,
-                    getPackageName() + ".fileprovider", target);
+            cameraOutputUri = WallpaperFileProvider.uriFor(this, target);
             Intent intent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
             intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, cameraOutputUri);
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);

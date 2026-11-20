@@ -36,8 +36,3 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
-
-dependencies {
-    // 拍照换壁纸需要 FileProvider
-    implementation 'androidx.core:core:1.13.1'
-}

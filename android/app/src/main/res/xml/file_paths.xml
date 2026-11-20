@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <!-- 拍照换壁纸时，把缓存目录里的照片临时授权给相机应用写入 -->
-    <cache-path name="wallpaper" path="wallpaper/" />
-</paths>

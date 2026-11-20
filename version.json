@@ -1,6 +1,6 @@
 {
-  "versionCode": 22,
-  "versionName": "2.9",
+  "versionCode": 23,
+  "versionName": "3.0",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "打开 App 或切回前台都会检查更新（10 分钟内不重复），并自动切换镜像线路。"
+  "notes": "使用自定义角色时，左上角标题显示角色名字；默认角色仍显示 AI云。"
 }

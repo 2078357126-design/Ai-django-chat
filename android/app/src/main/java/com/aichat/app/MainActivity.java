@@ -855,6 +855,12 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String roleName() {
+            Role role = findActiveRole();
+            return role == null ? "" : role.name;
+        }
+
+        @JavascriptInterface
         public void showRoles() {
             runOnUiThread(() -> {
                 if (webView != null) {

@@ -172,7 +172,7 @@
 </head>
 <body>
 <header>
-  <h1>AI云</h1>
+  <h1 id="app-title">AI云</h1>
   <div class="header-actions">
     <button id="roles" type="button">角色</button>
     <button id="voice" type="button">语音</button>
@@ -606,6 +606,14 @@
     // 确认框由原生层弹出，避免 WebView 不支持 confirm 导致点击无效
     Android.resetKey();
   });
+
+  // 使用自定义角色时，左上角标题显示角色名字
+  var customRoleName = (window.Android && typeof Android.roleName === 'function')
+      ? Android.roleName() : '';
+  if (customRoleName) {
+    document.getElementById('app-title').textContent = customRoleName;
+    document.title = customRoleName;
+  }
 
   // 延迟一拍，确保原生桥接已就绪后再读取角色和记录
   setTimeout(restoreHistory, 0);

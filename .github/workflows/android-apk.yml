@@ -57,28 +57,17 @@ jobs:
 
       - name: 构建 APK
         working-directory: android
-        run: |
-          set -o pipefail
-          gradle assembleRelease --no-daemon 2>&1 | tee /tmp/gradle-build.log
-
-      - name: 失败时记录日志
-        if: failure()
-        run: |
-          mkdir -p dist-android
-          tail -n 150 /tmp/gradle-build.log > dist-android/build-error.txt || true
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist-android/build-error.txt
-          git commit -m "chore: 记录构建错误" || true
-          git push || true
+        run: gradle assembleRelease --no-daemon
 
       - name: 提交 APK
         run: |
           mkdir -p dist-android
-          rm -f dist-android/build-error.txt
           cp android/app/build/outputs/apk/release/app-release.apk dist-android/AIChat-android.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add dist-android/AIChat-android.apk
           git commit -m "chore: 更新安卓安装包" || echo "无变化"
-          git push
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push && break
+            sleep 5
+          done

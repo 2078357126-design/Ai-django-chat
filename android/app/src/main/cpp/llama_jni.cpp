@@ -159,6 +159,8 @@ Java_com_aichat_app_LlamaBridge_nativeChat(JNIEnv *env, jclass, jlong handle, js
 
     std::lock_guard<std::mutex> lock(engine->mutex);
     engine->stop = false;
+    // 每次对话从干净的 KV 缓存开始，避免多轮之后把上下文撑爆
+    llama_memory_clear(llama_get_memory(engine->ctx), true);
 
     const llama_vocab *vocab = llama_model_get_vocab(engine->model);
     std::vector<llama_token> tokens = tokenize(vocab, promptText);

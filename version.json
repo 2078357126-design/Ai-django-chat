@@ -1,6 +1,6 @@
 {
-  "versionCode": 25,
-  "versionName": "3.0",
+  "versionCode": 26,
+  "versionName": "3.1",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "朗读更像真人：句子之间加入自然换气停顿，语调随内容起伏；自定义角色按男/女声自动变化音色，小云保持原本声音。"
+  "notes": "新增聊天壁纸：可从相册选图或直接拍照，每个角色单独保存，可一键恢复默认。"
 }

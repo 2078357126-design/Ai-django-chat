@@ -10,8 +10,8 @@ android {
         applicationId 'com.aichat.app'
         minSdk 24
         targetSdk 34
-        versionCode 25
-        versionName '3.0'
+        versionCode 26
+        versionName '3.1'
     }
 
     signingConfigs {
@@ -35,4 +35,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // 拍照换壁纸需要 FileProvider
+    implementation 'androidx.core:core:1.13.1'
 }

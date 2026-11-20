@@ -15,7 +15,7 @@ from openai import OpenAI, OpenAIError
 
 from .models import ChatRecord
 
-APP_VERSION = '3.0'
+APP_VERSION = '3.1'
 MAX_KEYS = 3
 MAX_STORY = 1000
 

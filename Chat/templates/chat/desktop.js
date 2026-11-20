@@ -643,6 +643,107 @@
     });
   }
 
+  // ---------------- 聊天壁纸 ----------------
+
+  function wallpaperStorageKey() {
+    return 'desktop_wallpaper_' + activeRoleId();
+  }
+
+  function storedWallpaper() {
+    try { return LS.getItem(wallpaperStorageKey()) || ''; } catch (e) { return ''; }
+  }
+
+  function saveWallpaper(dataUrl) {
+    try {
+      LS.setItem(wallpaperStorageKey(), dataUrl);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function applyWallpaper(url) {
+    if (window.__applyWallpaper) window.__applyWallpaper(url || '');
+  }
+
+  function handleWallpaperFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var image = new Image();
+      image.onload = function () {
+        // 缩到 1600 以内再存，避免撑爆浏览器存储
+        var scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        var dataUrl;
+        try {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        } catch (e) {
+          dataUrl = reader.result;
+        }
+        var saved = saveWallpaper(dataUrl);
+        applyWallpaper(dataUrl);
+        var mask = document.querySelector('.desk-mask');
+        if (mask) mask.remove();
+        if (!saved) {
+          alert('壁纸已应用，但图片太大没能保存，下次打开会恢复默认');
+        }
+      };
+      image.onerror = function () { alert('读取图片失败，请换一张试试'); };
+      image.src = reader.result;
+    };
+    reader.onerror = function () { alert('读取图片失败，请换一张试试'); };
+    reader.readAsDataURL(file);
+  }
+
+  function chooseWallpaper() {
+    openModal('聊天壁纸', function (body, foot, close) {
+      body.appendChild(el('div', 'desk-hint',
+        '选一张图片作为当前角色的聊天背景，不同角色的壁纸互不影响。'));
+
+      var cameraInput = document.createElement('input');
+      cameraInput.type = 'file';
+      cameraInput.accept = 'image/*';
+      cameraInput.setAttribute('capture', 'environment');
+      cameraInput.style.display = 'none';
+      var albumInput = document.createElement('input');
+      albumInput.type = 'file';
+      albumInput.accept = 'image/*';
+      albumInput.style.display = 'none';
+      cameraInput.addEventListener('change', function () {
+        handleWallpaperFile(this.files && this.files[0]);
+      });
+      albumInput.addEventListener('change', function () {
+        handleWallpaperFile(this.files && this.files[0]);
+      });
+      body.append(cameraInput, albumInput);
+
+      var cameraRow = el('div', 'desk-row');
+      cameraRow.appendChild(el('div', 'desk-row-main', '拍照\n打开相机拍一张，直接用'));
+      cameraRow.addEventListener('click', function () { cameraInput.click(); });
+      body.appendChild(cameraRow);
+
+      var albumRow = el('div', 'desk-row');
+      albumRow.appendChild(el('div', 'desk-row-main', '从相册选择\n挑一张已有的照片'));
+      albumRow.addEventListener('click', function () { albumInput.click(); });
+      body.appendChild(albumRow);
+
+      var resetRow = el('div', 'desk-row');
+      resetRow.appendChild(el('div', 'desk-row-main', '恢复默认壁纸'));
+      resetRow.addEventListener('click', function () {
+        try { LS.removeItem(wallpaperStorageKey()); } catch (e) { /* 忽略 */ }
+        applyWallpaper('');
+        close();
+      });
+      body.appendChild(resetRow);
+
+      foot.appendChild(button('取消', '', close));
+    });
+  }
+
   // ---------------- 更新检查 ----------------
 
   var VERSION_URLS = [
@@ -736,6 +837,8 @@
     },
     showRoles: showRoles,
     chooseVoice: chooseVoice,
+    chooseWallpaper: chooseWallpaper,
+    wallpaper: storedWallpaper,
     resetKey: resetKey,
     checkUpdate: checkUpdate,
     confirmClearHistory: function () {

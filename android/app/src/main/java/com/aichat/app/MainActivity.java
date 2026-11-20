@@ -12,7 +12,11 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -23,6 +27,7 @@ import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.text.TextWatcher;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -40,10 +45,14 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.core.content.FileProvider;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -83,6 +92,9 @@ public class MainActivity extends Activity {
             "生活不止眼前的苟且，还有诗和远方。",
     };
     private static final int MAX_KEYS = 3;
+    private static final int MAX_WALLPAPER_SIDE = 1600;
+    private static final int REQ_WALLPAPER_CAMERA = 4001;
+    private static final int REQ_WALLPAPER_GALLERY = 4002;
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
     private static final String DEFAULT_SYSTEM_PROMPT =
@@ -114,6 +126,7 @@ public class MainActivity extends Activity {
     private boolean ttsFailed;
     private String pendingSpeech;
     private AlertDialog voiceDialog;
+    private Uri cameraOutputUri;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -138,6 +151,36 @@ public class MainActivity extends Activity {
             lastUpdateCheck = now;
             new Thread(this::checkForUpdate).start();
         }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_WALLPAPER_CAMERA && requestCode != REQ_WALLPAPER_GALLERY) {
+            return;
+        }
+        Uri source = requestCode == REQ_WALLPAPER_CAMERA
+                ? cameraOutputUri
+                : (data == null ? null : data.getData());
+        cameraOutputUri = null;
+        if (resultCode != RESULT_OK || source == null) {
+            return;
+        }
+        final Uri uri = source;
+        new Thread(() -> {
+            final String dataUrl = encodeWallpaper(uri);
+            runOnUiThread(() -> {
+                if (dataUrl == null) {
+                    Toast.makeText(this, "读取图片失败，请换一张试试",
+                            Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString(wallpaperKey(), dataUrl).apply();
+                applyWallpaper(dataUrl);
+                Toast.makeText(this, "壁纸已更换", Toast.LENGTH_SHORT).show();
+            });
+        }).start();
     }
 
     @Override
@@ -762,6 +805,177 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+    // ---------------- 聊天壁纸 ----------------
+
+    /** 每个角色各自保存壁纸，默认角色用同一个键。 */
+    private String wallpaperKey() {
+        return "wallpaper_" + activeRoleId();
+    }
+
+    private void showWallpaperPicker() {
+        String[] items = {"拍照", "从相册选择", "恢复默认壁纸"};
+        new AlertDialog.Builder(this)
+                .setTitle("聊天壁纸")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        takeWallpaperPhoto();
+                    } else if (which == 1) {
+                        pickWallpaperFromGallery();
+                    } else {
+                        clearWallpaper();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void takeWallpaperPhoto() {
+        try {
+            File dir = new File(getCacheDir(), "wallpaper");
+            File[] old = dir.listFiles();
+            if (old != null) {
+                for (File file : old) {
+                    //noinspection ResultOfMethodCallIgnored
+                    file.delete();
+                }
+            }
+            if (!dir.exists() && !dir.mkdirs()) {
+                throw new IllegalStateException("无法创建缓存目录");
+            }
+            File target = new File(dir, "capture.jpg");
+            cameraOutputUri = FileProvider.getUriForFile(this,
+                    getPackageName() + ".fileprovider", target);
+            Intent intent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+            intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, cameraOutputUri);
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            startActivityForResult(intent, REQ_WALLPAPER_CAMERA);
+        } catch (Exception e) {
+            cameraOutputUri = null;
+            Toast.makeText(this, "无法打开相机：" + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void pickWallpaperFromGallery() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(intent, REQ_WALLPAPER_GALLERY);
+        } catch (Exception e) {
+            Toast.makeText(this, "无法打开相册：" + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void clearWallpaper() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .remove(wallpaperKey()).apply();
+        applyWallpaper("");
+        Toast.makeText(this, "已恢复默认背景", Toast.LENGTH_SHORT).show();
+    }
+
+    /** 图片先缩到 1600 以内再转 data URL，避免占用太多存储空间。 */
+    private String encodeWallpaper(Uri uri) {
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) {
+                    return null;
+                }
+                BitmapFactory.decodeStream(in, null, bounds);
+            }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                return null;
+            }
+            int longest = Math.max(bounds.outWidth, bounds.outHeight);
+            int sample = 1;
+            while (longest / sample > MAX_WALLPAPER_SIDE) {
+                sample *= 2;
+            }
+
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            Bitmap bitmap;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                bitmap = in == null ? null : BitmapFactory.decodeStream(in, null, options);
+            }
+            if (bitmap == null) {
+                return null;
+            }
+
+            int rotation = readExifRotation(uri);
+            if (rotation != 0) {
+                Matrix matrix = new Matrix();
+                matrix.postRotate(rotation);
+                Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0,
+                        bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+                if (rotated != bitmap) {
+                    bitmap.recycle();
+                    bitmap = rotated;
+                }
+            }
+
+            int width = bitmap.getWidth();
+            int height = bitmap.getHeight();
+            int side = Math.max(width, height);
+            if (side > MAX_WALLPAPER_SIDE) {
+                float scale = (float) MAX_WALLPAPER_SIDE / side;
+                Bitmap scaled = Bitmap.createScaledBitmap(bitmap,
+                        Math.max(1, Math.round(width * scale)),
+                        Math.max(1, Math.round(height * scale)), true);
+                if (scaled != bitmap) {
+                    bitmap.recycle();
+                    bitmap = scaled;
+                }
+            }
+
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output);
+            bitmap.recycle();
+            return "data:image/jpeg;base64,"
+                    + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    private int readExifRotation(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                return 0;
+            }
+            ExifInterface exif = new ExifInterface(in);
+            int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL);
+            switch (orientation) {
+                case ExifInterface.ORIENTATION_ROTATE_90:
+                    return 90;
+                case ExifInterface.ORIENTATION_ROTATE_180:
+                    return 180;
+                case ExifInterface.ORIENTATION_ROTATE_270:
+                    return 270;
+                default:
+                    return 0;
+            }
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 通知网页切换壁纸；空字符串表示恢复默认。 */
+    private void applyWallpaper(String dataUrl) {
+        if (webView == null) {
+            return;
+        }
+        String argument = (dataUrl == null || dataUrl.isEmpty())
+                ? "''" : "'" + dataUrl + "'";
+        webView.evaluateJavascript(
+                "window.__applyWallpaper && window.__applyWallpaper(" + argument + ")",
+                null);
+    }
+
     private void openChat() {
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
@@ -842,6 +1056,18 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void chooseVoice() {
             runOnUiThread(MainActivity.this::showVoicePicker);
+        }
+
+        @JavascriptInterface
+        public void chooseWallpaper() {
+            runOnUiThread(MainActivity.this::showWallpaperPicker);
+        }
+
+        /** 当前角色已保存的壁纸（data URL），没有则返回空串。 */
+        @JavascriptInterface
+        public String wallpaper() {
+            return getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString(wallpaperKey(), "");
         }
 
         @JavascriptInterface

@@ -168,6 +168,14 @@
     font-size: 14px;
   }
   #send:disabled { background: #a8c0ff; }
+  /* 换了壁纸时，提示文字加一层底，保证看得清 */
+  body.has-wallpaper .tip {
+    color: #fff;
+    background: rgba(0, 0, 0, .38);
+    padding: 6px 12px;
+    border-radius: 10px;
+    align-self: center;
+  }
 </style>
 </head>
 <body>
@@ -176,6 +184,7 @@
   <div class="header-actions">
     <button id="roles" type="button">角色</button>
     <button id="voice" type="button">语音</button>
+    <button id="wallpaper" type="button">壁纸</button>
     <button id="update" type="button">更新</button>
     <button id="clear" type="button">清空</button>
     <button id="reset" type="button">更换 Key</button>
@@ -594,6 +603,14 @@
     }
   });
 
+  document.getElementById('wallpaper').addEventListener('click', function () {
+    if (window.Android && Android.chooseWallpaper) {
+      Android.chooseWallpaper();
+    } else {
+      alert('更换壁纸请在 App 内使用');
+    }
+  });
+
   document.getElementById('clear').addEventListener('click', function () {
     if (window.Android && Android.confirmClearHistory) {
       Android.confirmClearHistory();
@@ -613,6 +630,24 @@
   if (customRoleName) {
     document.getElementById('app-title').textContent = customRoleName;
     document.title = customRoleName;
+  }
+
+  // 聊天壁纸：由原生层按当前角色保存，进来时自动恢复
+  window.__applyWallpaper = function (url) {
+    if (url) {
+      document.body.style.backgroundImage = 'url("' + url + '")';
+      document.body.style.backgroundSize = 'cover';
+      document.body.style.backgroundPosition = 'center';
+      document.body.classList.add('has-wallpaper');
+    } else {
+      document.body.style.backgroundImage = '';
+      document.body.classList.remove('has-wallpaper');
+    }
+  };
+  if (window.Android && typeof Android.wallpaper === 'function') {
+    try {
+      window.__applyWallpaper(Android.wallpaper());
+    } catch (e) { /* 拿不到壁纸时保持默认背景 */ }
   }
 
   // 延迟一拍，确保原生桥接已就绪后再读取角色和记录

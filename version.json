@@ -1,6 +1,6 @@
 {
-  "versionCode": 23,
+  "versionCode": 24,
   "versionName": "3.0",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "使用自定义角色时，左上角标题显示角色名字；默认角色仍显示 AI云。"
+  "notes": "朗读更接近真人：加入换气停顿、收敛语调变化、自动选用高质量中文语音。"
 }

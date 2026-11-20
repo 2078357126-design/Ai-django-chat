@@ -1019,6 +1019,33 @@ public class MainActivity extends Activity {
         if (tts == null) {
             return;
         }
+        // 没有自定义音色时，优先选质量最高的本地中文语音，听起来更自然
+        Set<Voice> voices = tts.getVoices();
+        Voice best = null;
+        if (voices != null) {
+            for (Voice voice : voices) {
+                if (!"zh".equals(voice.getLocale().getLanguage())) {
+                    continue;
+                }
+                if (voice.isNetworkConnectionRequired()) {
+                    continue;
+                }
+                if (best == null || voice.getQuality() > best.getQuality()) {
+                    best = voice;
+                }
+            }
+        }
+        if (best != null) {
+            try {
+                if (tts.setVoice(best) == TextToSpeech.SUCCESS) {
+                    tts.setPitch(1f);
+                    tts.setSpeechRate(1f);
+                    return;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         int result = tts.setLanguage(Locale.CHINA);
         if (result == TextToSpeech.LANG_MISSING_DATA
                 || result == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -1046,7 +1073,7 @@ public class MainActivity extends Activity {
         speakWithEmotion(text);
     }
 
-    /** 按句子和情绪调整音调、语速，让朗读有起伏。 */
+    /** 按句子和情绪调整音调、语速，并加入自然停顿，让朗读更像真人。 */
     private void speakWithEmotion(String text) {
         if (tts == null || text == null) {
             return;
@@ -1059,17 +1086,49 @@ public class MainActivity extends Activity {
         }
         tts.stop();
         boolean first = true;
-        for (String part : parts) {
+        for (int i = 0; i < parts.size(); i++) {
+            String part = parts.get(i);
             float[] params = emotionParams(part, basePitch, baseRate);
             tts.setPitch(params[0]);
             tts.setSpeechRate(params[1]);
+
+            Bundle speakParams = new Bundle();
+            speakParams.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.96f);
             tts.speak(part, first ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD,
-                    null, "aiyun" + System.currentTimeMillis());
+                    speakParams, "aiyun" + i + "-" + System.currentTimeMillis());
             first = false;
+
+            int pause = pauseAfter(part);
+            if (pause > 0 && i < parts.size() - 1) {
+                tts.playSilentUtterance(pause, TextToSpeech.QUEUE_ADD, "pause" + i);
+            }
         }
         // 播完恢复用户设置的基础音调/语速
         tts.setPitch(basePitch);
         tts.setSpeechRate(baseRate);
+    }
+
+    /** 句末标点对应的停顿，模拟说话换气。 */
+    private int pauseAfter(String part) {
+        if (part.endsWith("…") || part.endsWith("...")) {
+            return 420;
+        }
+        if (part.endsWith("？") || part.endsWith("?")) {
+            return 360;
+        }
+        if (part.endsWith("！") || part.endsWith("!")) {
+            return 320;
+        }
+        if (part.endsWith("。") || part.endsWith(".")) {
+            return 280;
+        }
+        if (part.endsWith("；") || part.endsWith(";")) {
+            return 300;
+        }
+        if (part.endsWith("，") || part.endsWith(",") || part.endsWith("、")) {
+            return 140;
+        }
+        return 180;
     }
 
     private List<String> splitForSpeech(String text) {
@@ -1091,33 +1150,58 @@ public class MainActivity extends Activity {
         if (!rest.isEmpty()) {
             parts.add(rest);
         }
-        return parts;
+
+        // 合并过短的分句，避免一顿一顿的机械感
+        List<String> merged = new ArrayList<>();
+        for (String part : parts) {
+            if (!merged.isEmpty() && part.length() < 6) {
+                int last = merged.size() - 1;
+                merged.set(last, merged.get(last) + part);
+            } else {
+                merged.add(part);
+            }
+        }
+        return merged;
     }
 
     private float[] emotionParams(String part, float basePitch, float baseRate) {
         float pitch = basePitch;
         float rate = baseRate;
-        if (containsAny(part, "哈哈", "笑死", "嘿嘿", "好耶", "冲", "😂", "🤣", "😄")) {
-            pitch += 0.14f;
-            rate += 0.08f;
-        } else if (containsAny(part, "呜呜", "难过", "委屈", "想哭", "😭", "🥺")) {
-            pitch -= 0.10f;
-            rate -= 0.08f;
-        } else if (containsAny(part, "哼", "生气", "讨厌", "烦", "😤", "😡")) {
-            pitch += 0.06f;
-            rate += 0.05f;
-        } else if (containsAny(part, "震惊", "卧槽", "离谱", "不会吧", "😱", "😨")) {
+        if (containsAny(part, "哈哈", "笑死", "嘿嘿", "好耶", "😂", "🤣", "😄")) {
             pitch += 0.10f;
-            rate += 0.03f;
+            rate += 0.06f;
+        } else if (containsAny(part, "呜呜", "难过", "委屈", "想哭", "😭", "🥺")) {
+            pitch -= 0.07f;
+            rate -= 0.06f;
+        } else if (containsAny(part, "哼", "生气", "讨厌", "烦", "😤", "😡")) {
+            pitch += 0.04f;
+            rate += 0.04f;
+        } else if (containsAny(part, "震惊", "卧槽", "离谱", "不会吧", "😱", "😨")) {
+            pitch += 0.08f;
+            rate += 0.02f;
         } else if (containsAny(part, "害羞", "脸红", "😳", "🙈")) {
-            pitch += 0.05f;
+            pitch += 0.04f;
             rate -= 0.03f;
         }
         if (part.endsWith("？") || part.endsWith("?")) {
-            pitch += 0.08f;
+            pitch += 0.06f;
         }
+
+        // 句尾语气词放软一点，更接近真人说话
+        String core = part;
+        while (core.length() > 0
+                && "。！？!?，,、；;…".indexOf(core.charAt(core.length() - 1)) >= 0) {
+            core = core.substring(0, core.length() - 1);
+        }
+        if (!core.isEmpty()
+                && "啊呀呢嘛啦吧哦噢".indexOf(core.charAt(core.length() - 1)) >= 0) {
+            pitch -= 0.03f;
+            rate -= 0.03f;
+        }
+
         // 轻微随机抖动，避免每句都一模一样
-        pitch += (Math.random() - 0.5) * 0.04;
+        pitch += (Math.random() - 0.5) * 0.03;
+        rate += (Math.random() - 0.5) * 0.03;
         pitch = Math.max(0.5f, Math.min(2.0f, pitch));
         rate = Math.max(0.5f, Math.min(2.0f, rate));
         return new float[]{pitch, rate};

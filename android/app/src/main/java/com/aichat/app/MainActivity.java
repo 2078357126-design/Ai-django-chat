@@ -820,7 +820,7 @@ public class MainActivity extends Activity {
                     } else if (which == 1) {
                         pickWallpaperFromGallery();
                     } else {
-                        clearWallpaper();
+                        resetWallpaper();
                     }
                 })
                 .setNegativeButton("取消", null)
@@ -865,7 +865,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void clearWallpaper() {
+    private void resetWallpaper() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .remove(wallpaperKey()).apply();
         applyWallpaper("");

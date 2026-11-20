@@ -49,7 +49,21 @@ jobs:
           printf 'OPENAI_API_KEY=%s\nOPENAI_BASE_URL=https://api.deepseek.com\nOPENAI_MODEL=deepseek-flash\n' "$PRESET_KEY" > preset.env
 
       - name: 下载本地推理组件
+        if: runner.os != 'Windows'
         run: python scripts/fetch_llama.py
+
+      - name: 下载本地推理组件（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "llama-b12556-bin-win-cpu-x64.zip"
+          $url = "https://github.com/ggml-org/llama.cpp/releases/download/b12556/$name"
+          Invoke-WebRequest -Uri $url -OutFile llama.zip
+          Expand-Archive -Path llama.zip -DestinationPath llama_tmp -Force
+          $bin = Get-ChildItem llama_tmp -Recurse -Filter llama-server.exe | Select-Object -First 1
+          if (-not $bin) { throw "压缩包里没有找到 llama-server.exe" }
+          New-Item -ItemType Directory -Force vendor/llama | Out-Null
+          Copy-Item -Path (Join-Path $bin.Directory.FullName '*') -Destination vendor/llama -Recurse -Force
 
       - name: 打包
         run: pyinstaller --noconfirm --clean ai_chat.spec

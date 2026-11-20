@@ -4,7 +4,6 @@
 不下载模型权重，只下载推理可执行文件和配套动态库。
 """
 
-import json
 import os
 import platform
 import shutil
@@ -15,8 +14,21 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-RELEASES = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10'
 MIRROR = 'https://ghproxy.net/'
+# 固定版本，避免每次构建拿到不同产物；也避免依赖 GitHub API 的限流
+PINNED_TAG = 'b12556'
+
+
+def pinned_asset(pattern):
+    ext = '.zip' if os.name == 'nt' else '.tar.gz'
+    name = 'llama-%s-bin-%s%s' % (PINNED_TAG, pattern, ext)
+    return {
+        'name': name,
+        'browser_download_url': (
+            'https://github.com/ggml-org/llama.cpp/releases/download/%s/%s'
+            % (PINNED_TAG, name)
+        ),
+    }
 
 
 def asset_pattern():
@@ -63,20 +75,7 @@ def main():
         return
 
     pattern = asset_pattern()
-    with fetch(RELEASES, timeout=60) as response:
-        releases = json.load(response)
-
-    asset = None
-    for release in releases:
-        for item in release.get('assets', []):
-            name = item['name']
-            if pattern in name and (name.endswith('.zip') or name.endswith('.tar.gz')):
-                asset = item
-                break
-        if asset is not None:
-            break
-    if asset is None:
-        raise SystemExit('没有找到 %s 对应的构建产物' % pattern)
+    asset = pinned_asset(pattern)
     print('下载', asset['name'])
 
     with tempfile.TemporaryDirectory() as temp:

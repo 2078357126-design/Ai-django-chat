@@ -13,6 +13,7 @@
     color: #1f2329;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
   header {
     padding: 14px 16px;
@@ -33,6 +34,7 @@
   }
   #messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 16px;
     display: flex;
@@ -695,6 +697,20 @@
       form.requestSubmit();
     }
   });
+
+  // 键盘弹出或收起时，把输入框和最新消息滚回可见区域
+  function keepInputVisible() {
+    setTimeout(scrollToBottom, 120);
+    setTimeout(scrollToBottom, 360);
+  }
+  input.addEventListener('focus', keepInputVisible);
+  input.addEventListener('click', keepInputVisible);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      // 键盘高度变化后，等布局稳定再滚动
+      setTimeout(scrollToBottom, 60);
+    });
+  }
 
   // ---------------- 模型面板 ----------------
 

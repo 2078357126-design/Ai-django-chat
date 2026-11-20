@@ -1,6 +1,6 @@
 {
-  "versionCode": 27,
+  "versionCode": 28,
   "versionName": "3.2",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "新增本地模型：支持 Qwen3.5 0.8B / 2B 离线聊天，模型按需下载，不填 Key 也能用。"
+  "notes": "修复安卓键盘弹出时挡住输入框和最新消息的问题。"
 }

@@ -15,3 +15,4 @@ android/local.properties
 android/app/src/main/cpp/llama.cpp/
 android/app/src/main/cpp/llama.cpp.downloaded
 vendor/
+.trae/

@@ -6,6 +6,7 @@
 3. 启动本地服务并自动打开浏览器
 """
 
+import json
 import os
 import platform
 import socket
@@ -50,6 +51,19 @@ def load_config(path: Path) -> dict:
     return config
 
 
+def _parse_keys(raw: str) -> list:
+    """解析 OPENAI_API_KEYS（JSON 数组），格式不对时当作没有。"""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item).strip() for item in parsed if str(item).strip()][:3]
+
+
 def pick_port(start=8765):
     """从 start 开始找一个空闲端口。"""
     for port in range(start, start + 30):
@@ -68,18 +82,28 @@ def main():
     # 打包时预置的 Key：安装包本身自带，用户无需填写
     preset = load_config(resource_dir() / 'preset.env')
 
-    api_key = (
-        os.environ.get('OPENAI_API_KEY')
-        or config.get('OPENAI_API_KEY')
-        or preset.get('OPENAI_API_KEY', '')
+    # 多 Key：配置文件里优先读 OPENAI_API_KEYS（JSON 数组），老配置回退到单个 Key
+    keys = _parse_keys(
+        os.environ.get('OPENAI_API_KEYS')
+        or config.get('OPENAI_API_KEYS')
+        or preset.get('OPENAI_API_KEYS')
     )
+    if not keys:
+        single = (
+            os.environ.get('OPENAI_API_KEY')
+            or config.get('OPENAI_API_KEY')
+            or preset.get('OPENAI_API_KEY', '')
+        )
+        if single:
+            keys = [single]
 
     os.environ['DJANGO_SETTINGS_MODULE'] = 'ai_django.settings'
     os.environ['DJANGO_USE_SQLITE'] = '1'
     os.environ['SQLITE_PATH'] = str(store / 'chat.db')
     os.environ['DJANGO_DEBUG'] = '0'
     os.environ['DJANGO_ALLOWED_HOSTS'] = '127.0.0.1,localhost'
-    os.environ['OPENAI_API_KEY'] = api_key
+    os.environ['OPENAI_API_KEYS'] = json.dumps(keys)
+    os.environ['OPENAI_API_KEY'] = keys[0] if keys else ''
     os.environ['OPENAI_BASE_URL'] = (
         config.get('OPENAI_BASE_URL')
         or preset.get('OPENAI_BASE_URL')

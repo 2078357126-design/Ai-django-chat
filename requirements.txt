@@ -4,3 +4,4 @@ PyMySQL>=1.2
 cryptography>=42
 gunicorn>=23
 whitenoise>=6.7
+certifi>=2024.2

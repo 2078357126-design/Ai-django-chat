@@ -9,6 +9,8 @@ from PyInstaller.utils.hooks import collect_submodules
 datas = [
     ('Chat/templates', 'Chat/templates'),
     ('Chat/migrations', 'Chat/migrations'),
+    # 桌面端与安卓端共用同一份聊天界面和表情图
+    ('android/app/src/main/assets', 'android-assets'),
 ]
 
 # 构建前生成的预置配置（含 API Key），有则打进包内

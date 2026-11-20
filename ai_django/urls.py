@@ -17,13 +17,15 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
-from Chat.views import chat_page, pwa_icon, pwa_manifest, pwa_service_worker
+from Chat.views import chat_page, pwa_icon, pwa_manifest, pwa_service_worker, sticker_svg
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', chat_page, name='chat_page'),
     path('chat/', chat_page),
     path('api/', include('Chat.urls')),
+    # 表情图与安卓端共用同一份资源
+    path('stickers/<str:name>.svg', sticker_svg, name='sticker'),
     # PWA：可安装为桌面/主屏应用
     path('manifest.webmanifest', pwa_manifest, name='pwa_manifest'),
     path('sw.js', pwa_service_worker, name='pwa_sw'),

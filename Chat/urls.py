@@ -9,4 +9,5 @@ urlpatterns = [
     path('keys/', views.keys, name='keys'),
     path('keys/balance/', views.key_balance, name='key_balance'),
     path('meta/', views.meta, name='meta'),
+    path('models/', views.models, name='models'),
 ]

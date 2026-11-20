@@ -744,6 +744,62 @@
     });
   }
 
+  // ---------------- 本地模型 ----------------
+
+  function desktopActiveModel() {
+    return LS.getItem('desktop_active_model') || 'cloud';
+  }
+
+  function modelApi(action, id) {
+    return fetch('/api/models/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, id: id })
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; });
+    }).then(function (data) {
+      if (data && data.error) throw new Error(data.error);
+      return data;
+    });
+  }
+
+  var modelPollTimer = null;
+  var lastModelState = {};
+
+  function pollModels() {
+    fetch('/api/models/').then(function (response) {
+      return response.json();
+    }).then(function (data) {
+      var models = (data && data.models) || [];
+      var downloading = false;
+      models.forEach(function (model) {
+        var previous = lastModelState[model.id] || {};
+        if (model.downloading || previous.downloading) {
+          if (window.__onModelProgress) {
+            window.__onModelProgress(JSON.stringify({
+              id: model.id,
+              progress: model.progress,
+              done: !model.downloading,
+              error: (model.error && model.error !== previous.error) ? model.error : null
+            }));
+          }
+        }
+        lastModelState[model.id] = model;
+        if (model.downloading) downloading = true;
+      });
+      if (!downloading && modelPollTimer) {
+        clearInterval(modelPollTimer);
+        modelPollTimer = null;
+      }
+    }).catch(function () { /* 下一轮再试 */ });
+  }
+
+  function startModelPolling() {
+    if (modelPollTimer) return;
+    modelPollTimer = setInterval(pollModels, 1000);
+    pollModels();
+  }
+
   // ---------------- 更新检查 ----------------
 
   var VERSION_URLS = [
@@ -800,24 +856,85 @@
     return id;
   }
 
+  /** 读取本地模型的流式输出（SSE）。 */
+  function readSse(response, callbackId) {
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder('utf-8');
+    var buffer = '';
+    var full = '';
+    var finished = false;
+
+    function handleBlock(block) {
+      block.split('\n').forEach(function (line) {
+        if (line.indexOf('data: ') !== 0 || finished) return;
+        var data;
+        try { data = JSON.parse(line.slice(6)); } catch (e) { return; }
+        if (data.delta) {
+          full += data.delta;
+          if (window.__onDelta) window.__onDelta(callbackId, data.delta);
+        } else if (data.done) {
+          finished = true;
+          window.__onResult(callbackId, JSON.stringify({ reply: data.reply || full }));
+        } else if (data.error) {
+          finished = true;
+          window.__onResult(callbackId, JSON.stringify({ error: data.error }));
+        }
+      });
+    }
+
+    function pump() {
+      return reader.read().then(function (result) {
+        if (result.done) {
+          if (!finished) {
+            finished = true;
+            window.__onResult(callbackId, JSON.stringify({ reply: full }));
+          }
+          return;
+        }
+        buffer += decoder.decode(result.value, { stream: true });
+        var index;
+        while ((index = buffer.indexOf('\n\n')) >= 0) {
+          var block = buffer.slice(0, index);
+          buffer = buffer.slice(index + 2);
+          handleBlock(block);
+        }
+        return pump();
+      });
+    }
+
+    return pump();
+  }
+
   function chat(text, callbackId) {
     var role = findRole(activeRoleId());
-    var payload = { message: text, session_id: sessionId, visitor_id: visitorId() };
+    var model = desktopActiveModel();
+    var payload = {
+      message: text,
+      session_id: sessionId,
+      visitor_id: visitorId(),
+      model: model
+    };
     if (role) {
       payload.role = { name: role.name, gender: role.gender, story: role.story };
+    }
+    if (model !== 'cloud') {
+      payload.stream = true;
     }
     fetch('/api/chat/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }).then(function (response) {
+      if (model !== 'cloud' && response.ok && response.body) {
+        return readSse(response, callbackId).catch(function (error) {
+          window.__onResult(callbackId,
+            JSON.stringify({ error: '网络错误：' + error.message }));
+        });
+      }
       return response.json().catch(function () { return {}; }).then(function (data) {
-        return { ok: response.ok, data: data };
+        if (!response.ok && !data.error) data.error = '请求失败';
+        window.__onResult(callbackId, JSON.stringify(data));
       });
-    }).then(function (result) {
-      var data = result.data || {};
-      if (!result.ok && !data.error) data.error = '请求失败';
-      window.__onResult(callbackId, JSON.stringify(data));
     }).catch(function (error) {
       window.__onResult(callbackId,
         JSON.stringify({ error: '网络错误：' + error.message }));
@@ -839,6 +956,40 @@
     chooseVoice: chooseVoice,
     chooseWallpaper: chooseWallpaper,
     wallpaper: storedWallpaper,
+    listModels: function () {
+      return fetch('/api/models/').then(function (response) {
+        return response.json();
+      }).then(function (data) {
+        return JSON.stringify((data && data.models) || []);
+      }).catch(function () {
+        return '[]';
+      });
+    },
+    activeModel: desktopActiveModel,
+    selectModel: function (id) {
+      LS.setItem('desktop_active_model', id);
+      modelApi('select', id).catch(function (error) {
+        alert(error.message);
+      });
+    },
+    downloadModel: function (id) {
+      modelApi('download', id).then(startModelPolling).catch(function (error) {
+        alert(error.message);
+      });
+    },
+    cancelModelDownload: function (id) {
+      modelApi('cancel', id).catch(function () { /* 忽略 */ });
+    },
+    deleteModel: function (id) {
+      modelApi('delete', id).then(function () {
+        if (desktopActiveModel() === id) {
+          LS.setItem('desktop_active_model', 'cloud');
+        }
+        if (window.__onModelsChanged) window.__onModelsChanged();
+      }).catch(function (error) {
+        alert(error.message);
+      });
+    },
     resetKey: resetKey,
     checkUpdate: checkUpdate,
     confirmClearHistory: function () {
@@ -853,4 +1004,17 @@
     },
     modelName: function () { return 'deepseek-flash'; }
   };
+
+  // 与本地服务同步当前模型，并接管刷新前就在进行的下载
+  fetch('/api/models/').then(function (response) {
+    return response.json();
+  }).then(function (data) {
+    if (data && data.active) {
+      LS.setItem('desktop_active_model', data.active);
+    }
+    var models = (data && data.models) || [];
+    if (models.some(function (model) { return model.downloading; })) {
+      startModelPolling();
+    }
+  }).catch(function () { /* 忽略 */ });
 })();

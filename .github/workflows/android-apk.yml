@@ -26,6 +26,21 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: 安装 NDK 与 CMake
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;27.0.12077973" "cmake;3.22.1"
+
+      - name: 拉取 llama.cpp 源码
+        run: |
+          mkdir -p android/app/src/main/cpp/llama.cpp
+          cd android/app/src/main/cpp/llama.cpp
+          git init -q
+          git remote add origin https://github.com/ggml-org/llama.cpp.git
+          git fetch --depth 1 origin b94959a64d011915d77a5381c7d4846dcda99530
+          git checkout -q FETCH_HEAD
+
       - name: 准备固定签名
         run: |
           if [ ! -f android/keystore.jks ]; then

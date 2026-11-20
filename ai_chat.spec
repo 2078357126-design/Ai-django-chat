@@ -11,7 +11,13 @@ datas = [
     ('Chat/migrations', 'Chat/migrations'),
     # 桌面端与安卓端共用同一份聊天界面和表情图
     ('android/app/src/main/assets', 'android-assets'),
+    # 本地模型清单
+    ('models.json', '.'),
 ]
+
+# 本地推理用到的 llama-server（CI 构建前下载到 vendor/llama）
+if os.path.exists('vendor/llama'):
+    datas.append(('vendor/llama', 'llama'))
 
 # 构建前生成的预置配置（含 API Key），有则打进包内
 if os.path.exists('preset.env'):

@@ -23,13 +23,13 @@
     justify-content: space-between;
   }
   header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-  header .header-actions { display: flex; gap: 6px; }
+  header .header-actions { display: flex; gap: 4px; }
   header button {
     border: none;
     background: none;
     color: #8a9099;
-    font-size: 12px;
-    padding: 4px 4px;
+    font-size: 11px;
+    padding: 4px 3px;
   }
   #messages {
     flex: 1;
@@ -176,12 +176,111 @@
     border-radius: 10px;
     align-self: center;
   }
+  /* 通用弹窗（模型面板） */
+  .sheet-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 20, 30, .45);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 999;
+  }
+  .sheet {
+    width: 100%;
+    max-width: 560px;
+    max-height: 82vh;
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-size: 14px;
+    color: #1f2329;
+  }
+  .sheet-head {
+    padding: 16px 18px 8px;
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .sheet-head button {
+    border: none;
+    background: none;
+    color: #3370ff;
+    font-size: 14px;
+  }
+  .sheet-body {
+    padding: 4px 18px 18px;
+    overflow-y: auto;
+  }
+  .sheet-hint {
+    font-size: 12px;
+    color: #8a9099;
+    line-height: 1.55;
+    padding: 2px 0 10px;
+  }
+  .model-row {
+    border: 1px solid #eef0f3;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .model-row.active { border-color: #c9d8ff; background: #f5f8ff; }
+  .model-top {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .model-name { font-weight: 600; }
+  .model-tag {
+    font-size: 11px;
+    color: #3370ff;
+    background: #eaf0ff;
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
+  .model-desc { font-size: 12px; color: #8a9099; line-height: 1.5; margin-top: 4px; }
+  .model-meta { font-size: 11px; color: #a0a6ad; margin-top: 4px; }
+  .model-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .model-actions button {
+    height: 30px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    background: #f2f3f5;
+    color: #1f2329;
+  }
+  .model-actions button.primary { background: #3370ff; color: #fff; }
+  .model-actions button.danger { background: transparent; color: #d4380d; }
+  .model-bar {
+    height: 4px;
+    background: #eef0f3;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .model-bar span {
+    display: block;
+    height: 100%;
+    background: #3370ff;
+    width: 0;
+  }
 </style>
 </head>
 <body>
 <header>
   <h1 id="app-title">AI云</h1>
   <div class="header-actions">
+    <button id="models" type="button">模型</button>
     <button id="roles" type="button">角色</button>
     <button id="voice" type="button">语音</button>
     <button id="wallpaper" type="button">壁纸</button>
@@ -206,28 +305,42 @@
   var input = document.getElementById('input');
   var sendBtn = document.getElementById('send');
   var pending = {};
+  var pendingTurns = {};
+
+  function callChat(text, turn) {
+    return new Promise(function (resolve) {
+      var id = 'c' + Date.now() + Math.floor(Math.random() * 1000);
+      pending[id] = resolve;
+      if (turn) pendingTurns[id] = turn;
+      try {
+        Android.chat(text, id);
+      } catch (e) {
+        delete pending[id];
+        delete pendingTurns[id];
+        resolve({ error: '无法连接应用内核' });
+      }
+    });
+  }
+
+  /** 本地模型流式输出：边生成边显示。 */
+  window.__onDelta = function (id, text) {
+    var turn = pendingTurns[id];
+    if (!turn || !text) return;
+    turn.pending = false;
+    turn.reply = (turn.reply || '') + text;
+    renderBot(turn);
+    scrollToBottom();
+  };
 
   window.__onResult = function (id, jsonText) {
     var cb = pending[id];
+    delete pendingTurns[id];
     if (!cb) return;
     delete pending[id];
     var data;
     try { data = JSON.parse(jsonText); } catch (e) { data = { error: '返回解析失败' }; }
     cb(data);
   };
-
-  function callChat(text) {
-    return new Promise(function (resolve) {
-      var id = 'c' + Date.now() + Math.floor(Math.random() * 1000);
-      pending[id] = resolve;
-      try {
-        Android.chat(text, id);
-      } catch (e) {
-        delete pending[id];
-        resolve({ error: '无法连接应用内核' });
-      }
-    });
-  }
 
   var roleId = '';
 
@@ -483,7 +596,7 @@
     t.reply = '';
     t.sticker = '';
     renderBot(t);
-    return callChat(t.text).then(function (data) {
+    return callChat(t.text, t).then(function (data) {
       t.pending = false;
       if (data && data.reply) {
         t.reply = data.reply;
@@ -507,11 +620,15 @@
 
   function maybeProactive() {
     if (document.hidden) return;
+    // 本地模型耗电快，不主动搭话
+    try {
+      if (window.Android && Android.activeModel && Android.activeModel() !== 'cloud') return;
+    } catch (e) { /* 忽略 */ }
     if (Math.random() > 0.3) return;
     var t = addTurn('', '', false, true);
     t.pending = true;
     renderBot(t);
-    callChat(PROACTIVE_PROMPT).then(function (data) {
+    callChat(PROACTIVE_PROMPT, t).then(function (data) {
       t.pending = false;
       if (data && data.reply) {
         t.reply = data.reply;
@@ -578,6 +695,209 @@
       form.requestSubmit();
     }
   });
+
+  // ---------------- 模型面板 ----------------
+
+  var modelList = [];
+  var modelPanel = null;
+
+  function formatSize(bytes) {
+    if (!bytes) return '';
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
+    return Math.round(bytes / 1024 / 1024) + ' MB';
+  }
+
+  function refreshModels() {
+    var result;
+    try {
+      result = (window.Android && Android.listModels) ? Android.listModels() : '[]';
+    } catch (e) {
+      result = '[]';
+    }
+    Promise.resolve(result).then(function (raw) {
+      var list;
+      try { list = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { list = []; }
+      modelList = Array.isArray(list) ? list : [];
+      renderModelList();
+    });
+  }
+
+  function modelButton(label, cls, onClick) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    if (cls) button.className = cls;
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
+  function renderModelList() {
+    if (!modelPanel) return;
+    var list = modelPanel.querySelector('.model-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    modelList.forEach(function (model) {
+      var row = document.createElement('div');
+      row.className = 'model-row' + (model.active ? ' active' : '');
+
+      var top = document.createElement('div');
+      top.className = 'model-top';
+      var name = document.createElement('span');
+      name.className = 'model-name';
+      name.textContent = model.name;
+      top.appendChild(name);
+      if (model.active) {
+        var tag = document.createElement('span');
+        tag.className = 'model-tag';
+        tag.textContent = '使用中';
+        top.appendChild(tag);
+      }
+      if (model.vision) {
+        var visionTag = document.createElement('span');
+        visionTag.className = 'model-tag';
+        visionTag.textContent = '带视觉';
+        top.appendChild(visionTag);
+      }
+      row.appendChild(top);
+
+      var desc = document.createElement('div');
+      desc.className = 'model-desc';
+      desc.textContent = model.desc || '';
+      row.appendChild(desc);
+
+      var meta = document.createElement('div');
+      meta.className = 'model-meta';
+      var parts = [];
+      if (model.ram) parts.push('内存 ' + model.ram);
+      if (model.size) parts.push('下载 ' + formatSize(model.size));
+      if (model.downloading) parts.push('下载中 ' + (model.progress || 0) + '%');
+      else if (model.installed) parts.push('已下载');
+      meta.textContent = parts.join(' · ');
+      row.appendChild(meta);
+
+      if (model.downloading) {
+        var bar = document.createElement('div');
+        bar.className = 'model-bar';
+        var fill = document.createElement('span');
+        fill.style.width = Math.max(2, model.progress || 0) + '%';
+        bar.appendChild(fill);
+        row.appendChild(bar);
+      }
+
+      var actions = document.createElement('div');
+      actions.className = 'model-actions';
+
+      if (!model.active && (model.id === 'cloud' || model.installed)) {
+        actions.appendChild(modelButton('使用', 'primary', function () {
+          try { Android.selectModel(model.id); } catch (e) { /* 忽略 */ }
+          modelList.forEach(function (item) { item.active = item.id === model.id; });
+          renderModelList();
+        }));
+      }
+      if (model.id !== 'cloud' && !model.installed && !model.downloading) {
+        actions.appendChild(modelButton('下载', 'primary', function () {
+          try { Android.downloadModel(model.id); } catch (e) { /* 忽略 */ }
+          model.downloading = true;
+          model.progress = 0;
+          renderModelList();
+        }));
+      }
+      if (model.downloading) {
+        actions.appendChild(modelButton('暂停', '', function () {
+          try {
+            if (Android.cancelModelDownload) Android.cancelModelDownload(model.id);
+          } catch (e) { /* 忽略 */ }
+        }));
+      }
+      if (model.id !== 'cloud' && model.installed) {
+        actions.appendChild(modelButton('删除', 'danger', function () {
+          if (!confirm('确定删除「' + model.name + '」吗？删除后需要重新下载。')) return;
+          try { Android.deleteModel(model.id); } catch (e) { /* 忽略 */ }
+          setTimeout(refreshModels, 300);
+        }));
+      }
+      if (actions.children.length) {
+        row.appendChild(actions);
+      }
+      list.appendChild(row);
+    });
+  }
+
+  function openModelPanel() {
+    if (modelPanel) {
+      refreshModels();
+      return;
+    }
+    var mask = document.createElement('div');
+    mask.className = 'sheet-mask';
+    var sheet = document.createElement('div');
+    sheet.className = 'sheet';
+
+    var head = document.createElement('div');
+    head.className = 'sheet-head';
+    var title = document.createElement('span');
+    title.textContent = '模型';
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '关闭';
+    head.append(title, close);
+
+    var body = document.createElement('div');
+    body.className = 'sheet-body';
+    var hint = document.createElement('div');
+    hint.className = 'sheet-hint';
+    hint.textContent = '云端需要 API Key，回答质量最好；本地模型首次要先下载，之后断网也能聊。'
+      + '手机内存小于 4GB 建议选 0.8B，本地模型回答会比云端简单。';
+    var list = document.createElement('div');
+    list.className = 'model-list';
+    body.append(hint, list);
+
+    sheet.append(head, body);
+    mask.appendChild(sheet);
+    document.body.appendChild(mask);
+    modelPanel = mask;
+
+    close.addEventListener('click', function () {
+      mask.remove();
+      modelPanel = null;
+    });
+    mask.addEventListener('click', function (event) {
+      if (event.target === mask) {
+        mask.remove();
+        modelPanel = null;
+      }
+    });
+    refreshModels();
+  }
+
+  window.__onModelProgress = function (jsonText) {
+    var info;
+    try { info = JSON.parse(jsonText); } catch (e) { return; }
+    var model = null;
+    for (var i = 0; i < modelList.length; i++) {
+      if (modelList[i].id === info.id) {
+        model = modelList[i];
+        break;
+      }
+    }
+    if (!model) return;
+    model.downloading = !info.done;
+    model.progress = info.progress || 0;
+    if (info.done) model.installed = true;
+    if (info.error) {
+      model.downloading = false;
+      alert(info.error);
+    }
+    renderModelList();
+    if (info.done) refreshModels();
+  };
+
+  window.__onModelsChanged = function () {
+    refreshModels();
+  };
+
+  document.getElementById('models').addEventListener('click', openModelPanel);
 
   document.getElementById('roles').addEventListener('click', function () {
     if (window.Android && Android.showRoles) {

@@ -1,0 +1,65 @@
+{
+  "models": [
+    {
+      "id": "qwen35-08b",
+      "name": "Qwen3.5 0.8B",
+      "desc": "最快最省内存，低配手机也能跑，适合日常闲聊",
+      "ram": "约 1GB",
+      "vision": false,
+      "main": "Qwen3.5-0.8B-Q4_K_M.gguf",
+      "mmproj": "",
+      "files": [
+        {
+          "name": "Qwen3.5-0.8B-Q4_K_M.gguf",
+          "size": 532517120,
+          "urls": [
+            "https://modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_K_M.gguf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen35-2b",
+      "name": "Qwen3.5 2B",
+      "desc": "本地主力：回答更完整，聊天和角色扮演更稳",
+      "ram": "约 2GB",
+      "vision": false,
+      "main": "Qwen3.5-2B-Q4_K_M.gguf",
+      "mmproj": "",
+      "files": [
+        {
+          "name": "Qwen3.5-2B-Q4_K_M.gguf",
+          "size": 1280835840,
+          "urls": [
+            "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q4_K_M.gguf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen35-2b-vision",
+      "name": "Qwen3.5 2B 看图版",
+      "desc": "在 2B 基础上加视觉模块，看图功能将在下一版开放",
+      "ram": "约 2.5GB",
+      "vision": true,
+      "main": "Qwen3.5-2B-Q4_K_M.gguf",
+      "mmproj": "mmproj-F16.gguf",
+      "files": [
+        {
+          "name": "Qwen3.5-2B-Q4_K_M.gguf",
+          "size": 1280835840,
+          "urls": [
+            "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q4_K_M.gguf"
+          ]
+        },
+        {
+          "name": "mmproj-F16.gguf",
+          "size": 668227264,
+          "urls": [
+            "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/mmproj-F16.gguf"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -125,10 +125,12 @@ public class MainActivity extends Activity {
     private String pendingSpeech;
     private AlertDialog voiceDialog;
     private Uri cameraOutputUri;
+    private LocalModelManager modelManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        modelManager = new LocalModelManager(this);
         registerUpdateReceiver();
         initTts();
         if (getApiKey().isEmpty()) {
@@ -183,6 +185,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        LlamaBridge.release();
         if (tts != null) {
             tts.stop();
             tts.shutdown();
@@ -439,6 +442,13 @@ public class MainActivity extends Activity {
             openChat();
         });
         layout.addView(save, fullWidth());
+
+        Button local = new Button(this);
+        local.setText("不填 Key，先用本地模型");
+        local.setBackgroundColor(Color.TRANSPARENT);
+        local.setTextColor(Color.parseColor("#3370FF"));
+        local.setOnClickListener(v -> openChat());
+        layout.addView(local, fullWidth());
 
         TextView version = new TextView(this);
         version.setText("版本 " + appVersionName());
@@ -988,6 +998,11 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void chat(String message, String callbackId) {
+            String model = modelManager.activeId();
+            if (!LocalModelManager.CLOUD.equals(model)) {
+                runLocalChat(message, callbackId, model);
+                return;
+            }
             new Thread(() -> {
                 final String result = requestChat(message);
                 runOnUiThread(() -> {
@@ -997,6 +1012,62 @@ public class MainActivity extends Activity {
                     }
                 });
             }).start();
+        }
+
+        @JavascriptInterface
+        public String listModels() {
+            return modelManager.listJson();
+        }
+
+        @JavascriptInterface
+        public String activeModel() {
+            return modelManager.activeId();
+        }
+
+        @JavascriptInterface
+        public void selectModel(String id) {
+            modelManager.select(id);
+            LlamaBridge.release();
+        }
+
+        @JavascriptInterface
+        public void downloadModel(final String id) {
+            modelManager.download(id, (modelId, percent, done, error) -> {
+                try {
+                    JSONObject info = new JSONObject();
+                    info.put("id", modelId);
+                    info.put("progress", percent);
+                    info.put("done", done);
+                    if (error != null) {
+                        info.put("error", error);
+                    }
+                    runJsUi("window.__onModelProgress && window.__onModelProgress("
+                            + JSONObject.quote(info.toString()) + ")");
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void cancelModelDownload(String id) {
+            modelManager.cancel(id);
+        }
+
+        @JavascriptInterface
+        public void deleteModel(String id) {
+            if (LocalModelManager.CLOUD.equals(id)) {
+                return;
+            }
+            if (LlamaBridge.isLoaded(id)) {
+                LlamaBridge.release();
+            }
+            modelManager.delete(id);
+            runJs("window.__onModelsChanged && window.__onModelsChanged()");
+        }
+
+        @JavascriptInterface
+        public void stopLocalChat() {
+            LlamaBridge.stop();
         }
 
         @JavascriptInterface
@@ -1730,6 +1801,67 @@ public class MainActivity extends Activity {
         if (view != null) {
             view.evaluateJavascript(script, null);
         }
+    }
+
+    private void runJsUi(final String script) {
+        runOnUiThread(() -> runJs(script));
+    }
+
+    /** 本地模型：后台加载 + 流式生成，文字通过 __onDelta 推给网页。 */
+    private void runLocalChat(final String message, final String callbackId,
+                              final String modelId) {
+        if (!modelManager.isInstalled(modelId)) {
+            replyLocalError(callbackId, "本地模型还没下载完成，请先在「模型」里下载");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                LlamaBridge.load(modelId, modelManager.mainPath(modelId),
+                        modelManager.mmprojPath(modelId));
+                final StringBuilder full = new StringBuilder();
+                LlamaBridge.chat(buildLocalPrompt(message), data -> {
+                    String piece = new String(data, StandardCharsets.UTF_8);
+                    if (piece.isEmpty()) {
+                        return;
+                    }
+                    full.append(piece);
+                    runJsUi("window.__onDelta && window.__onDelta("
+                            + JSONObject.quote(callbackId) + ", "
+                            + JSONObject.quote(piece) + ")");
+                });
+                String reply = full.toString().trim();
+                if (reply.isEmpty()) {
+                    reply = "……";
+                }
+                JSONObject result = new JSONObject();
+                result.put("reply", reply);
+                runJsUi("window.__onResult && window.__onResult("
+                        + JSONObject.quote(callbackId) + ", "
+                        + JSONObject.quote(result.toString()) + ")");
+            } catch (Throwable e) {
+                LlamaBridge.release();
+                replyLocalError(callbackId, "本地模型出错：" + e.getMessage());
+            }
+        }).start();
+    }
+
+    private void replyLocalError(String callbackId, String message) {
+        try {
+            JSONObject result = new JSONObject();
+            result.put("error", message);
+            runJsUi("window.__onResult && window.__onResult("
+                    + JSONObject.quote(callbackId) + ", "
+                    + JSONObject.quote(result.toString()) + ")");
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String buildLocalPrompt(String message) {
+        // Qwen3.5 的模板在关闭思考时会补一个空的 think 块，这里手动带上，
+        // 否则模型会先输出一大段思考内容，把上下文占满。
+        return "<|im_start|>system\n" + buildSystemPrompt() + "<|im_end|>\n"
+                + "<|im_start|>user\n" + message + "<|im_end|>\n"
+                + "<|im_start|>assistant\n<think>\n\n</think>\n\n";
     }
 
     private String requestChat(String message) {

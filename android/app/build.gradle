@@ -5,13 +5,38 @@ plugins {
 android {
     namespace 'com.aichat.app'
     compileSdk 34
+    ndkVersion '27.0.12077973'
 
     defaultConfig {
         applicationId 'com.aichat.app'
         minSdk 24
         targetSdk 34
-        versionCode 26
-        versionName '3.1'
+        versionCode 27
+        versionName '3.2'
+
+        ndk {
+            // 本地推理引擎只编 64 位 ARM，覆盖绝大多数手机
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static'
+                cppFlags '-O3'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
     }
 
     signingConfigs {
@@ -36,3 +61,13 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+// 模型清单与桌面端共用同一份：构建时从仓库根目录复制进 assets
+def modelAssetsDir = layout.buildDirectory.dir('generated/modelAssets')
+tasks.register('copyModelsJson', Copy) {
+    from rootProject.projectDir.parentFile.toPath().resolve('models.json')
+    into modelAssetsDir
+}
+
+android.sourceSets.main.assets.srcDirs += modelAssetsDir.get().asFile
+preBuild.dependsOn tasks.named('copyModelsJson')

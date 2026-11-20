@@ -1,6 +1,6 @@
 {
-  "versionCode": 26,
-  "versionName": "3.1",
+  "versionCode": 27,
+  "versionName": "3.2",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "新增聊天壁纸：可从相册选图或直接拍照，每个角色单独保存，可一键恢复默认。"
+  "notes": "新增本地模型：支持 Qwen3.5 0.8B / 2B 离线聊天，模型按需下载，不填 Key 也能用。"
 }

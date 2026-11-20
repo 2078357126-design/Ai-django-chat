@@ -7,15 +7,16 @@ import urllib.request
 from pathlib import Path
 
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from openai import OpenAI, OpenAIError
 
+from . import local_models
 from .models import ChatRecord
 
-APP_VERSION = '3.1'
+APP_VERSION = '3.2'
 MAX_KEYS = 3
 MAX_STORY = 1000
 
@@ -80,6 +81,50 @@ def sticker_svg(request, name):
 def meta(request):
     """当前桌面/网页版本号，供「更新」按钮比较。"""
     return JsonResponse({'version': APP_VERSION})
+
+
+# ---------------- 本地模型 ----------------
+
+@csrf_exempt
+def models(request):
+    """GET 列表 / POST 下载、暂停、选择、删除。"""
+    if request.method == 'GET':
+        return JsonResponse({
+            'models': local_models.list_models(),
+            'active': local_models.active_id(),
+        })
+
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持 GET/POST'}, status=405)
+
+    try:
+        payload = json.loads(request.body or b'{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'error': '请求体必须是合法的 JSON'}, status=400)
+
+    action = (payload.get('action') or '').strip()
+    model_id = (payload.get('id') or '').strip()
+    try:
+        if action == 'download':
+            local_models.start_download(model_id)
+        elif action == 'cancel':
+            local_models.cancel_download(model_id)
+        elif action == 'select':
+            local_models.select(model_id)
+            local_models.server().stop()
+        elif action == 'delete':
+            local_models.server().stop()
+            local_models.delete(model_id)
+        else:
+            return JsonResponse({'error': '未知操作'}, status=400)
+    except Exception as exc:  # noqa: BLE001 - 统一返回可读错误
+        return JsonResponse({'error': str(exc)}, status=400)
+
+    return JsonResponse({
+        'ok': True,
+        'models': local_models.list_models(),
+        'active': local_models.active_id(),
+    })
 
 
 # ---------------- API Key 管理（最多 3 个） ----------------
@@ -406,6 +451,78 @@ def _read_payload(request):
     return payload, None
 
 
+def _save_record(request, payload, message, reply, model_name):
+    try:
+        ChatRecord.objects.create(
+            session_id=(payload.get('session_id') or '')[:64],
+            visitor_id=(payload.get('visitor_id') or '')[:64],
+            ip_address=_client_ip(request),
+            user_message=message,
+            ai_response=reply,
+            model_name=model_name[:100],
+        )
+    except Exception:  # noqa: BLE001 - 记录失败不影响聊天
+        pass
+
+
+def _local_chat(request, payload, model_id):
+    """本地模型：直接转发给本机的 llama-server（OpenAI 兼容接口）。"""
+    message = payload['message']
+    role = payload.get('role')
+    try:
+        base_url = local_models.server().base_url(model_id)
+    except Exception as exc:  # noqa: BLE001 - 模型未下载/启动失败
+        return JsonResponse({'error': str(exc)}, status=503)
+
+    messages = [
+        {'role': 'system', 'content': _build_system_prompt(role)},
+        {'role': 'user', 'content': message},
+    ]
+    client = OpenAI(api_key='local', base_url=base_url + '/v1')
+    # 关掉思考过程，否则小模型会先输出一大段推理，回答迟迟不出来
+    options = {
+        'model': 'local',
+        'messages': messages,
+        'max_tokens': 512,
+        'extra_body': {'chat_template_kwargs': {'enable_thinking': False}},
+    }
+
+    if not payload.get('stream'):
+        try:
+            completion = client.chat.completions.create(**options)
+        except Exception as exc:  # noqa: BLE001
+            return JsonResponse({'error': '本地模型出错：' + str(exc)[:120]}, status=502)
+        reply = completion.choices[0].message.content or ''
+        _save_record(request, payload, message, reply, model_id)
+        return JsonResponse({'reply': reply, 'model': model_id})
+
+    def events():
+        full = ''
+        try:
+            stream = client.chat.completions.create(stream=True, **options)
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta.content or ''
+                if delta:
+                    full += delta
+                    yield 'data: ' + json.dumps(
+                        {'delta': delta}, ensure_ascii=False) + '\n\n'
+            _save_record(request, payload, message, full, model_id)
+            yield 'data: ' + json.dumps(
+                {'done': True, 'reply': full}, ensure_ascii=False) + '\n\n'
+        except Exception as exc:  # noqa: BLE001 - 生成中断
+            yield 'data: ' + json.dumps(
+                {'error': '本地模型出错：' + str(exc)[:120]},
+                ensure_ascii=False) + '\n\n'
+
+    response = StreamingHttpResponse(
+        events(), content_type='text/event-stream; charset=utf-8')
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    return response
+
+
 @csrf_exempt
 @require_POST
 def chat(request):
@@ -417,6 +534,10 @@ def chat(request):
     payload, error = _read_payload(request)
     if error:
         return error
+
+    model_id = (payload.get('model') or 'cloud').strip()
+    if model_id != 'cloud':
+        return _local_chat(request, payload, model_id)
 
     if not settings.OPENAI_API_KEY:
         return JsonResponse({'error': '未配置 OPENAI_API_KEY 环境变量'}, status=500)

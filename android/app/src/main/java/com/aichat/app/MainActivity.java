@@ -447,7 +447,12 @@ public class MainActivity extends Activity {
         local.setText("不填 Key，先用本地模型");
         local.setBackgroundColor(Color.TRANSPARENT);
         local.setTextColor(Color.parseColor("#3370FF"));
-        local.setOnClickListener(v -> openChat());
+        local.setOnClickListener(v -> {
+            if (LocalModelManager.CLOUD.equals(modelManager.activeId())) {
+                modelManager.select(modelManager.firstInstalledId());
+            }
+            openChat();
+        });
         layout.addView(local, fullWidth());
 
         TextView version = new TextView(this);

@@ -110,6 +110,18 @@ class LocalModelManager {
         return model != null && isInstalled(model);
     }
 
+    /** 没有云端 Key 时，优先用一个已经下载好的本地模型。 */
+    String firstInstalledId() {
+        JSONArray models = manifest();
+        for (int i = 0; i < models.length(); i++) {
+            JSONObject model = models.optJSONObject(i);
+            if (model != null && isInstalled(model)) {
+                return model.optString("id");
+            }
+        }
+        return CLOUD;
+    }
+
     String activeId() {
         return prefs().getString(KEY_ACTIVE, CLOUD);
     }

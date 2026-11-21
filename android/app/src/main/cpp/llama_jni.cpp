@@ -125,9 +125,13 @@ Java_com_aichat_app_LlamaBridge_nativeLoad(JNIEnv *env, jclass, jstring model_pa
 
     llama_sampler_chain_params samplerParams = llama_sampler_chain_default_params();
     llama_sampler *smpl = llama_sampler_chain_init(samplerParams);
+    // 小模型容易复读，加一点重复/频率惩罚，语气更像真人
+    const llama_vocab *vocab = llama_model_get_vocab(model);
+    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+            llama_vocab_n_tokens(vocab), 64, 1.1f, 0.1f, 0.1f));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.92f, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.85f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     Engine *engine = new Engine();

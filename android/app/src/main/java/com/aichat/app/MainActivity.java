@@ -102,6 +102,12 @@ public class MainActivity extends Activity {
             + "偶尔用 emoji 或颜文字表达情绪，别堆砌；不要写「[图片]」「[猫猫歪头]」这类文字描述图片。"
             + "除非用户明确要求使用其他语言，否则始终用简体中文回答，即使用户说简单英语也用中文。"
             + "不知道就直说，不要编造。";
+    /** 本地小模型容易写成客服腔，单独加一段风格约束。 */
+    private static final String LOCAL_STYLE =
+            "【聊天方式】像微信聊天：每次只说 1-2 句、最多 40 字；"
+            + "不要分点、不要标题、不要解释、不要说“作为AI/我是模型/很高兴为你服务”；"
+            + "多用“呀、啦、嘛、欸”这类语气词，偶尔带一个 emoji；"
+            + "先接对方的话，再补一句自己的反应；不要复读对方，不要每句都加表情。";
     private static final String VERSION_URL =
             "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
     private static final String VERSION_URL_JSDELIVR =
@@ -1864,9 +1870,14 @@ public class MainActivity extends Activity {
     private String buildLocalPrompt(String message) {
         // Qwen3.5 的模板在关闭思考时会补一个空的 think 块，这里手动带上，
         // 否则模型会先输出一大段思考内容，把上下文占满。
-        return "<|im_start|>system\n" + buildSystemPrompt() + "<|im_end|>\n"
+        String think = "<think>\n\n</think>\n\n";
+        return "<|im_start|>system\n" + buildSystemPrompt() + LOCAL_STYLE + "<|im_end|>\n"
+                + "<|im_start|>user\n在干嘛<|im_end|>\n"
+                + "<|im_start|>assistant\n" + think + "刚躺平刷手机呢，你呢～<|im_end|>\n"
+                + "<|im_start|>user\n今天有点累<|im_end|>\n"
+                + "<|im_start|>assistant\n" + think + "那就别硬撑啦，过来靠一会儿（拍拍）<|im_end|>\n"
                 + "<|im_start|>user\n" + message + "<|im_end|>\n"
-                + "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+                + "<|im_start|>assistant\n" + think;
     }
 
     private String requestChat(String message) {

@@ -1,6 +1,6 @@
 {
-  "versionCode": 28,
-  "versionName": "3.2",
+  "versionCode": 29,
+  "versionName": "3.3",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "修复安卓键盘弹出时挡住输入框和最新消息的问题。"
+  "notes": "本地模型更像真人聊天：回复更短更口语，减少客服腔和复读；停顿与语气更自然。"
 }

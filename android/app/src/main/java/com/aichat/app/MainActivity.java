@@ -93,6 +93,12 @@ public class MainActivity extends Activity {
     private static final int MAX_WALLPAPER_SIDE = 1600;
     private static final int REQ_WALLPAPER_CAMERA = 4001;
     private static final int REQ_WALLPAPER_GALLERY = 4002;
+    private static final String LOCAL_STYLE_PROMPT =
+            "现在你是在手机上跟对方微信聊天，必须像真人随手回消息："
+            + "每次只回 1-2 句，最多 60 个字；口语化、短句，可以用语气词和梗；"
+            + "别用 Markdown、列表、括号动作，也别说「作为 AI」「希望你喜欢」这类话；"
+            + "不知道就直说，不要编造。";
+
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";
     private static final String DEFAULT_SYSTEM_PROMPT =
@@ -102,12 +108,6 @@ public class MainActivity extends Activity {
             + "偶尔用 emoji 或颜文字表达情绪，别堆砌；不要写「[图片]」「[猫猫歪头]」这类文字描述图片。"
             + "除非用户明确要求使用其他语言，否则始终用简体中文回答，即使用户说简单英语也用中文。"
             + "不知道就直说，不要编造。";
-    /** 本地小模型容易写成客服腔，单独加一段风格约束。 */
-    private static final String LOCAL_STYLE =
-            "【聊天方式】像微信聊天：每次只说 1-2 句、最多 40 字；"
-            + "不要分点、不要标题、不要解释、不要说“作为AI/我是模型/很高兴为你服务”；"
-            + "多用“呀、啦、嘛、欸”这类语气词，偶尔带一个 emoji；"
-            + "先接对方的话，再补一句自己的反应；不要复读对方，不要每句都加表情。";
     private static final String VERSION_URL =
             "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/version.json";
     private static final String VERSION_URL_JSDELIVR =
@@ -1868,16 +1868,18 @@ public class MainActivity extends Activity {
     }
 
     private String buildLocalPrompt(String message) {
+        // 小模型的提示词更具体：明确长度、口语化，并给两轮示例，
+        // 否则很容易写成客服腔或长篇大论。
+        String system = buildSystemPrompt() + "\n" + LOCAL_STYLE_PROMPT;
         // Qwen3.5 的模板在关闭思考时会补一个空的 think 块，这里手动带上，
         // 否则模型会先输出一大段思考内容，把上下文占满。
-        String think = "<think>\n\n</think>\n\n";
-        return "<|im_start|>system\n" + buildSystemPrompt() + LOCAL_STYLE + "<|im_end|>\n"
+        return "<|im_start|>system\n" + system + "<|im_end|>\n"
                 + "<|im_start|>user\n在干嘛<|im_end|>\n"
-                + "<|im_start|>assistant\n" + think + "刚躺平刷手机呢，你呢～<|im_end|>\n"
-                + "<|im_start|>user\n今天有点累<|im_end|>\n"
-                + "<|im_start|>assistant\n" + think + "那就别硬撑啦，过来靠一会儿（拍拍）<|im_end|>\n"
+                + "<|im_start|>assistant\n躺着呢，正等你来找我聊天～<|im_end|>\n"
+                + "<|im_start|>user\n今天好累<|im_end|>\n"
+                + "<|im_start|>assistant\n抱抱，先去洗个热水澡，回来我陪你唠嗑<|im_end|>\n"
                 + "<|im_start|>user\n" + message + "<|im_end|>\n"
-                + "<|im_start|>assistant\n" + think;
+                + "<|im_start|>assistant\n<think>\n\n</think>\n\n";
     }
 
     private String requestChat(String message) {

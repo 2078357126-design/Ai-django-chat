@@ -125,12 +125,12 @@ Java_com_aichat_app_LlamaBridge_nativeLoad(JNIEnv *env, jclass, jstring model_pa
 
     llama_sampler_chain_params samplerParams = llama_sampler_chain_default_params();
     llama_sampler *smpl = llama_sampler_chain_init(samplerParams);
-    // 小模型容易复读，加一点重复/频率惩罚，语气更像真人
     const llama_vocab *vocab = llama_model_get_vocab(model);
+    // 轻微重复惩罚，避免小模型反复说同一句；温度略高一点更像随口聊天
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
-            llama_vocab_n_tokens(vocab), 64, 1.1f, 0.1f, 0.1f));
+            llama_vocab_n_tokens(vocab), 64, 1.1f, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.92f, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.85f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
@@ -165,6 +165,9 @@ Java_com_aichat_app_LlamaBridge_nativeChat(JNIEnv *env, jclass, jlong handle, js
     engine->stop = false;
     // 每次对话从干净的 KV 缓存开始，避免多轮之后把上下文撑爆
     llama_memory_clear(llama_get_memory(engine->ctx), true);
+    if (engine->smpl != nullptr) {
+        llama_sampler_reset(engine->smpl);
+    }
 
     const llama_vocab *vocab = llama_model_get_vocab(engine->model);
     std::vector<llama_token> tokens = tokenize(vocab, promptText);

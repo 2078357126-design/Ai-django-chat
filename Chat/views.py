@@ -412,32 +412,6 @@ def _build_system_prompt(role=None):
     return ''.join(parts)
 
 
-# 小模型容易写成客服腔，单独加一段风格约束和两轮示例来“带语气”
-_LOCAL_STYLE = (
-    '【聊天方式】像微信聊天：每次只说 1-2 句、最多 40 字；'
-    '不要分点、不要标题、不要解释、不要说“作为AI/我是模型/很高兴为你服务”；'
-    '多用“呀、啦、嘛、欸”这类语气词，偶尔带一个 emoji；'
-    '先接对方的话，再补一句自己的反应；不要复读对方，不要每句都加表情。'
-)
-
-_LOCAL_EXAMPLES = [
-    ('在干嘛', '刚躺平刷手机呢，你呢～'),
-    ('今天有点累', '那就别硬撑啦，过来靠一会儿（拍拍）'),
-]
-
-
-def _build_local_messages(role, message):
-    """本地模型：角色提示词 + 风格约束 + 两轮示例，让它更像人在聊天。"""
-    messages = [
-        {'role': 'system', 'content': _build_system_prompt(role) + _LOCAL_STYLE},
-    ]
-    for question, answer in _LOCAL_EXAMPLES:
-        messages.append({'role': 'user', 'content': question})
-        messages.append({'role': 'assistant', 'content': answer})
-    messages.append({'role': 'user', 'content': message})
-    return messages
-
-
 def _generate_reply(message, model, role=None):
     """调用 OpenAI 兼容接口，返回回复文本。"""
     client = OpenAI(
@@ -491,6 +465,14 @@ def _save_record(request, payload, message, reply, model_name):
         pass
 
 
+_LOCAL_STYLE_PROMPT = (
+    '现在你是在手机上跟对方微信聊天，必须像真人随手回消息：'
+    '每次只回 1-2 句，最多 60 个字；口语化、短句，可以用语气词和梗；'
+    '别用 Markdown、列表、括号动作，也别说「作为 AI」「希望你喜欢」这类话；'
+    '不知道就直说，不要编造。'
+)
+
+
 def _local_chat(request, payload, model_id):
     """本地模型：直接转发给本机的 llama-server（OpenAI 兼容接口）。"""
     message = payload['message']
@@ -500,17 +482,23 @@ def _local_chat(request, payload, model_id):
     except Exception as exc:  # noqa: BLE001 - 模型未下载/启动失败
         return JsonResponse({'error': str(exc)}, status=503)
 
-    messages = _build_local_messages(role, message)
+    # 小模型提示词更具体，并给两轮示例，避免客服腔和长篇大论
+    messages = [
+        {'role': 'system', 'content': _build_system_prompt(role) + '\n' + _LOCAL_STYLE_PROMPT},
+        {'role': 'user', 'content': '在干嘛'},
+        {'role': 'assistant', 'content': '躺着呢，正等你来找我聊天～'},
+        {'role': 'user', 'content': '今天好累'},
+        {'role': 'assistant', 'content': '抱抱，先去洗个热水澡，回来我陪你唠嗑'},
+        {'role': 'user', 'content': message},
+    ]
     client = OpenAI(api_key='local', base_url=base_url + '/v1')
-    # 关掉思考过程；温度略高、加一点重复惩罚，避免小模型像客服一样复读
+    # 关掉思考过程，否则小模型会先输出一大段推理，回答迟迟不出来
     options = {
         'model': 'local',
         'messages': messages,
-        'max_tokens': 140,
+        'max_tokens': 220,
         'temperature': 0.85,
-        'top_p': 0.92,
-        'frequency_penalty': 0.3,
-        'presence_penalty': 0.2,
+        'top_p': 0.9,
         'extra_body': {'chat_template_kwargs': {'enable_thinking': False}},
     }
 

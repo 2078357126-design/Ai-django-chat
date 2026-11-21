@@ -67,7 +67,7 @@ class LlamaBridge {
         if (current == 0) {
             throw new IllegalStateException("本地模型尚未加载");
         }
-        nativeChat(current, prompt, callback, 140);
+        nativeChat(current, prompt, callback, 256);
     }
 
     static void stop() {

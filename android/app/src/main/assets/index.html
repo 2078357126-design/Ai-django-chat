@@ -132,8 +132,30 @@
     color: #8a9099;
     font-size: 11px;
   }
-  .sticker-bubble { align-self: flex-start; }
+  .sticker-bubble {
+    align-self: flex-start;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    max-width: 160px;
+  }
   .sticker-bubble img { width: 96px; height: 96px; display: block; }
+  .sticker-cap {
+    font-size: 11px;
+    line-height: 1.4;
+    color: #6b7280;
+    background: #fff;
+    border: 1px solid #e8eaed;
+    border-radius: 999px;
+    padding: 1px 8px;
+    white-space: nowrap;
+  }
+  body.has-wallpaper .sticker-cap {
+    color: #fff;
+    background: rgba(0, 0, 0, .45);
+    border-color: transparent;
+  }
   .msg.error {
     align-self: flex-start;
     background: #fff1f0;
@@ -413,68 +435,168 @@
     img.src = 'stickers/' + t.sticker + '.svg';
     img.alt = '表情';
     t.stickerEl.appendChild(img);
+    var caption = STICKER_CAPTIONS[t.sticker];
+    if (caption) {
+      var cap = document.createElement('span');
+      cap.className = 'sticker-cap';
+      cap.textContent = caption;
+      t.stickerEl.appendChild(cap);
+    }
     t.stickerEl.setAttribute('data-sticker', t.sticker);
   }
 
-  // 情绪关键词 -> 表情图（图源：OpenMoji，CC BY-SA 4.0）
-  var STICKERS = {
-    laugh: ['笑死', '哈哈哈', '哈哈', '笑不活', '笑喷', '😂', '🤣', '😆'],
-    happy: ['开心', '好耶', '太好了', '棒', '嘿嘿', '😄', '😊'],
-    doge: ['狗头', 'doge', '狗子', '🐶', '🐕'],
-    panda: ['熊猫', '滚滚', '🐼'],
-    clown: ['抽象', '离谱', '什么鬼', '小丑', '🤡', '🥴'],
-    brain: ['智商', '脑子', '聪明', '🧠'],
-    facepalm: ['无语', '服了', '没眼看', '🤦'],
-    eyeroll: ['翻白眼', '白眼', '🙄'],
-    deadpan: ['冷漠', '平静', '😐'],
-    swearing: ['骂', '滚', '🤬'],
-    angry: ['哼', '生气', '气死', '烦', '讨厌', '😤', '😡', '💢'],
-    sad: ['呜呜', '委屈', '难过', '想哭', '🥺'],
-    cry: ['大哭', '哭死', '😭'],
-    shock: ['震惊', '卧槽', '不会吧', '😱'],
-    scream: ['吓', '啊这', '😨'],
-    boom: ['炸', '爆', '💥'],
-    hearts: ['心动', '好喜欢', '😍', '🥰'],
-    love: ['喜欢你', '想你', '爱你', '❤'],
-    kiss: ['亲亲', '么么', '啵', '😘', '💋'],
-    hug: ['抱抱', '贴贴', '🤗'],
-    shy: ['害羞', '脸红', '不好意思', '😳', '🙈'],
-    smug: ['得意', '哼哼', '小样', '😏'],
-    smirk: ['酷', '拽', '😎'],
-    star: ['明星', '出道', '红毯', '签名', '⭐', '🌟'],
-    crown: ['女王', '公主', '本小姐', '皇冠', '👑'],
-    mic: ['唱歌', '开麦', 'KTV', '🎤'],
-    money: ['土豪', '有钱', '老板', '发红包', '💰', '💸'],
-    rose: ['玫瑰', '土味', '情话', '浪漫', '🌹'],
-    thumbsup: ['牛', '厉害', '赞', '👍', '点赞'],
-    ok: ['OK', 'ok', '好的', '行吧', '👌'],
-    pray: ['谢谢', '拜托', '求求', '🙏'],
-    poop: ['屎', '便便', '💩'],
-    sweat: ['尴尬', '流汗', '😅', '😓'],
-    fire: ['火', '燃', '上头', '🔥'],
-    sparkle: ['闪', '亮', '✨'],
-    popcorn: ['吃瓜', '看戏', '🍿'],
-    cat: ['喵', '猫猫', '🐱', '🐈']
+  // 表情库：图源 OpenMoji（CC BY-SA 4.0）
+  // 一个情绪给多张候选图，命中多条规则时随机选一条，避免每次都一样
+  var STICKER_RULES = [
+    { words: ['笑死', '笑不活', '笑喷', '绷不住', '蚌埠住', '乐死', '哈哈哈', '哈哈', '嘿嘿', '233', '🤣', '😂', '😆'],
+      stickers: ['laugh', 'happy', 'zany', 'hundred', 'party', 'skull'] },
+    { words: ['抽象', '离谱', '典中典', '太典了', '麻了', '破防', '裂开', '寄了', '逆天', '好家伙', '我服了', '什么鬼', '🤡'],
+      stickers: ['clown', 'upside', 'melt', 'woozy', 'dizzy', 'moai', 'dotted', 'mindblown'] },
+    { words: ['无语', '服了', '没眼看', '翻白眼', '白眼', '就这', '呵呵', '🙄', '🤦'],
+      stickers: ['facepalm', 'eyeroll', 'blank', 'deadpan', 'moai', 'sweat'] },
+    { words: ['震惊', '卧槽', '不会吧', '真的假的', '吓', '啊这', '天呐', '我的天', '惊了', '😱', '😨'],
+      stickers: ['scream', 'shock', 'mindblown', 'boom', 'alien'] },
+    { words: ['哼', '生气', '气死', '烦死', '讨厌', '滚', '骂', '混蛋', '💢', '😤', '😡', '🤬'],
+      stickers: ['angry', 'swearing', 'fire', 'panda'] },
+    { words: ['呜呜', '委屈', '难过', '想哭', '哭死', '大哭', '伤心', 'emo', '酸了', '柠檬', '羡慕', '🥺', '😭'],
+      stickers: ['sad', 'cry', 'pleading', 'lemon', 'melt'] },
+    { words: ['求求', '拜托', '好不好', '行不行', '求你了', '🙏'],
+      stickers: ['pleading', 'pray', 'peek', 'hug'] },
+    { words: ['害羞', '脸红', '不好意思', '别夸', '😳', '🙈'],
+      stickers: ['shy', 'peek', 'kiss'] },
+    { words: ['喜欢你', '想你', '爱你', '心动', '好喜欢', '最爱', '么么', '亲亲', '💋', '😘', '😍', '🥰', '❤'],
+      stickers: ['love', 'hearts', 'kiss', 'fingerheart'] },
+    { words: ['抱抱', '贴贴', '蹭蹭', '摸摸', '🤗'],
+      stickers: ['hug', 'bear', 'rabbit', 'cat'] },
+    { words: ['得意', '哼哼', '小样', '酷', '拽', '帅哥', '美女', '大佬', '本小姐', '😏', '😎'],
+      stickers: ['smug', 'sunglasses', 'crown', 'gem', 'unicorn'] },
+    { words: ['牛', '牛逼', '厉害', '太强', '绝了', '赞', '666', '不错', '可以啊', '👍'],
+      stickers: ['thumbsup', 'hundred', 'clap', 'trophy', 'pinched', 'fire'] },
+    { words: ['谢谢', '感谢', '收到', '知道了', '好的', '行吧', '安排', '成交', '👌'],
+      stickers: ['pray', 'ok', 'salute', 'handshake', 'fingerheart'] },
+    { words: ['加油', '冲鸭', '你可以', '别怕', '稳住', '支棱', '打起精神'],
+      stickers: ['biceps', 'fire', 'rocket', 'trophy', 'hug'] },
+    { words: ['吃瓜', '八卦', '细说', '说说看', '有瓜', '围观', '看戏', '🍿'],
+      stickers: ['watermelon', 'popcorn', 'peek', 'coffee'] },
+    { words: ['吃饭', '干饭', '饿了', '火锅', '烧烤', '奶茶', '好吃', '夜宵'],
+      stickers: ['noodles', 'beer', 'pig', 'lemon'] },
+    { words: ['干杯', '喝酒', '啤酒', '微醺', '敬你', '🍻'],
+      stickers: ['beer', 'dancer', 'mandance'] },
+    { words: ['打工', '上班', '加班', '咖啡', '续命', '摸鱼', '老板'],
+      stickers: ['coffee', 'deadpan', 'sloth', 'money'] },
+    { words: ['困', '睡觉', '晚安', '睡了', '好累', '躺平', '摆烂', '累死'],
+      stickers: ['sloth', 'turtle', 'deadpan', 'fish'] },
+    { words: ['老铁', '双击', '关注', '奥利给', '社会', '精神小伙', '花手', '摇起来', '兄弟', '家人们'],
+      stickers: ['callme', 'mandance', 'dancer', 'rose', 'redenv'] },
+    { words: ['玫瑰', '土味', '情话', '浪漫', '宝贝', '宝，', '甜'],
+      stickers: ['rose', 'redenv', 'fingerheart', 'hearts', 'kiss'] },
+    { words: ['土豪', '有钱', '红包', '发财', '暴富', '工资', '买单', '💰', '💸'],
+      stickers: ['money', 'redenv', 'gem', 'crown'] },
+    { words: ['明星', '顶流', '出道', '红毯', '签名', '舞台', '开唱', '唱歌', '开麦', 'KTV', '粉丝', 'C位', '合影', '拍照', '🎤'],
+      stickers: ['star', 'gem', 'studiolmic', 'mic', 'camera', 'crown', 'trophy'] },
+    { words: ['恐怖', '鬼', '幽灵', '害怕'],
+      stickers: ['ghost', 'scream', 'alien'] },
+    { words: ['喵', '猫猫', '小猫', '🐱', '🐈'],
+      stickers: ['cat', 'rabbit', 'bear'] },
+    { words: ['狗头', 'doge', '狗子', '汪汪', '🐶', '🐕'],
+      stickers: ['doge', 'panda', 'pig'] },
+    { words: ['熊猫', '滚滚', '🐼'],
+      stickers: ['panda', 'bear'] },
+    { words: ['兔', '🐰'],
+      stickers: ['rabbit', 'hamster', 'chick'] },
+    { words: ['鸭', '嘎', '🦆'],
+      stickers: ['duck', 'chick', 'frog'] },
+    { words: ['蛙', '呱', '🐸'],
+      stickers: ['frog', 'duck', 'fish'] },
+    { words: ['猪', '🐷'],
+      stickers: ['pig', 'cow', 'hamster'] },
+    { words: ['企鹅', 'QQ'],
+      stickers: ['penguin', 'duck', 'chick'] },
+    { words: ['咸鱼', '鱼', '🐟'],
+      stickers: ['fish', 'sloth', 'turtle'] },
+    { words: ['尴尬', '社死', '尬', '抠脚', '脚趾', '流汗', '😅', '😓'],
+      stickers: ['sweat', 'grimace', 'dotted', 'blank'] },
+    { words: ['屎', '便便', '放屁', '💩'],
+      stickers: ['poop', 'clown', 'swearing'] },
+    { words: ['火了', '燃', '上头', '炸', '爆', '起飞', '🔥', '💥'],
+      stickers: ['fire', 'boom', 'rocket', 'mindblown'] },
+    { words: ['闪', '亮', '漂亮', '好看', '绝美', '✨'],
+      stickers: ['sparkle', 'star', 'gem', 'crown', 'unicorn'] },
+    { words: ['恭喜', '庆祝', '成功', '赢了', '太棒了', '好耶', '生日快乐', '🎉'],
+      stickers: ['party', 'confetti', 'trophy', 'clap', 'rocket'] },
+    { words: ['嘘', '秘密', '别说话', '安静', '悄悄'],
+      stickers: ['shush', 'peek', 'newmoon'] },
+    { words: ['坏笑', '搞事', '有内味', '你猜'],
+      stickers: ['newmoon', 'smirk', 'zany', 'clown'] },
+    { words: ['智商', '脑子', '聪明', '🧠'],
+      stickers: ['brain', 'mindblown', 'robot'] },
+    { words: ['机器人', '人工智能', 'AI', 'ai'],
+      stickers: ['robot', 'brain', 'mindblown'] },
+    { words: ['晕', '转圈', '醉了'],
+      stickers: ['dizzy', 'woozy', 'melt'] }
+  ];
+
+  // 表情配文：像表情包一样带一句台词
+  var STICKER_CAPTIONS = {
+    laugh: '哈哈哈哈哈', happy: '开森', doge: '狗头保命', panda: '滚滚',
+    clown: '小丑竟是我自己', brain: '动动脑子', facepalm: '没眼看',
+    eyeroll: '白眼翻上天', deadpan: '我面无表情', swearing: '我谢谢你',
+    angry: '哼！', sad: '抱抱我', cry: '呜呜呜', shock: '真的假的',
+    scream: '啊——', boom: '原地爆炸', hearts: '心动', love: '想你了',
+    kiss: '么么', hug: '抱一个', shy: '不许看', smug: '小样儿',
+    smirk: '就这？', star: '星光闪闪', crown: '本宫在此', mic: '开麦',
+    money: '老板大气', rose: '宝，我想你了', thumbsup: '牛啊', ok: 'OK',
+    pray: '拜托拜托', poop: '……', sweat: '汗流浃背了', fire: '上头了',
+    sparkle: 'blingbling', popcorn: '吃瓜看戏', cat: '喵～',
+    upside: '格局打开', skull: '笑死，根本停不下来', melt: '我化了',
+    woozy: '我不清醒', zany: '精神状态良好', dizzy: '晕了晕了',
+    dotted: '我原地消失', peek: '偷偷看你', shush: '嘘——',
+    mindblown: '脑瓜子嗡嗡的', grimace: '尬住了', blank: '……',
+    moai: '当场石化', newmoon: '嘿嘿嘿', ghost: '我飘了', robot: 'AI 本 AI',
+    pleading: '求求了', alien: '这合理吗', rabbit: '兔兔这么可爱',
+    hamster: '囤粮中', duck: '嘎', chick: '啾咪', frog: '孤寡',
+    pig: '猪猪叹气', cow: '牛哇', turtle: '慢慢来', sloth: '摆烂中',
+    bear: '抱一个', penguin: '企鹅跺脚', unicorn: '独一无二',
+    callme: '老铁双击 666', mandance: '花手摇起来', dancer: '摇起来',
+    redenv: '红包拿来', gem: '顶流本流', biceps: '干就完了', clap: '啪啪啪',
+    handshake: '成交', salute: '收到！', pinched: '拿捏了', fingerheart: '比心',
+    hundred: '这波满分', trophy: '冠军是我', rocket: '起飞！', party: '撒花！',
+    confetti: '恭喜恭喜', beer: '干了！', coffee: '打工人续命', noodles: '干饭人',
+    watermelon: '吃瓜群众', lemon: '酸了酸了', fish: '咸鱼躺平',
+    sunglasses: '大佬本佬', camera: '来，合个影', studiolmic: '全场为我尖叫'
   };
 
   function pickSticker(text) {
     if (!text) return '';
-    for (var key in STICKERS) {
-      var words = STICKERS[key];
-      for (var i = 0; i < words.length; i++) {
-        if (text.indexOf(words[i]) >= 0) return key;
+    var matched = [];
+    for (var i = 0; i < STICKER_RULES.length; i++) {
+      var words = STICKER_RULES[i].words;
+      for (var j = 0; j < words.length; j++) {
+        if (text.indexOf(words[j]) >= 0) {
+          matched.push(STICKER_RULES[i].stickers);
+          break;
+        }
       }
     }
-    return '';
+    if (!matched.length) return '';
+    var pool = matched[Math.floor(Math.random() * matched.length)];
+
+    // 避开最近出现过的表情，连续聊同个话题也有新鲜感
+    var recent = [];
+    for (var k = Math.max(0, turns.length - 3); k < turns.length; k++) {
+      if (turns[k] && turns[k].sticker) recent.push(turns[k].sticker);
+    }
+    for (var t = 0; t < 6; t++) {
+      var id = pool[Math.floor(Math.random() * pool.length)];
+      if (recent.indexOf(id) < 0) return id;
+    }
+    return pool[0];
   }
 
   function stickerForReply(text) {
-    var key = pickSticker(text);
-    if (!key) return '';
-    var prev = turns.length > 1 ? turns[turns.length - 2] : null;
-    if (prev && prev.sticker) return '';
-    if (Math.random() > 0.5) return '';
-    return key;
+    if (!text) return '';
+    if (Math.random() > 0.55) return '';
+    return pickSticker(text);
   }
 
   function speakText(text) {

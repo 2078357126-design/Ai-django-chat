@@ -1,6 +1,6 @@
 {
-  "versionCode": 29,
-  "versionName": "3.3",
+  "versionCode": 30,
+  "versionName": "3.4",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "本地模型更像真人：更短的回复、更口语化，并加入了对话示例。"
+  "notes": "表情包大幅扩充：抽象、搞笑、土味、可爱、明星范等 37 种，聊到相关话题会配图。"
 }

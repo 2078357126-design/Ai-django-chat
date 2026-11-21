@@ -95,9 +95,9 @@ public class MainActivity extends Activity {
     private static final int REQ_WALLPAPER_GALLERY = 4002;
     private static final String LOCAL_STYLE_PROMPT =
             "现在你是在手机上跟对方微信聊天，必须像真人随手回消息："
-            + "每次只回 1-2 句，最多 60 个字；口语化、短句，可以用语气词和梗；"
+            + "每次只回 1-2 句、最多 40 个字；口语化、短句，多用「呀、啦、嘛、欸」这类语气词；"
             + "别用 Markdown、列表、括号动作，也别说「作为 AI」「希望你喜欢」这类话；"
-            + "不知道就直说，不要编造。";
+            + "先接对方的话，再接一句自己的反应；不知道就直说，不要编造。";
 
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-flash";

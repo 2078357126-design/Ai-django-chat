@@ -128,9 +128,9 @@ Java_com_aichat_app_LlamaBridge_nativeLoad(JNIEnv *env, jclass, jstring model_pa
     const llama_vocab *vocab = llama_model_get_vocab(model);
     // 轻微重复惩罚，避免小模型反复说同一句；温度略高一点更像随口聊天
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
-            llama_vocab_n_tokens(vocab), 64, 1.1f, 0.0f, 0.0f));
+            llama_vocab_n_tokens(vocab), 64, 1.1f, 0.1f, 0.1f));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.92f, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.85f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 

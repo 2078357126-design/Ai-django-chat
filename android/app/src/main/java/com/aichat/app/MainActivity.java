@@ -36,6 +36,7 @@ import android.webkit.WebView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -91,8 +92,11 @@ public class MainActivity extends Activity {
     };
     private static final int MAX_KEYS = 3;
     private static final int MAX_WALLPAPER_SIDE = 1600;
+    private static final int MAX_AVATAR_SIDE = 256;
     private static final int REQ_WALLPAPER_CAMERA = 4001;
     private static final int REQ_WALLPAPER_GALLERY = 4002;
+    private static final int REQ_AVATAR_CAMERA = 4003;
+    private static final int REQ_AVATAR_GALLERY = 4004;
     private static final String LOCAL_STYLE_PROMPT =
             "现在你是在手机上跟对方微信聊天，必须像真人随手回消息："
             + "每次只回 1-2 句、最多 40 个字；口语化、短句，多用「呀、啦、嘛、欸」这类语气词；"
@@ -131,6 +135,7 @@ public class MainActivity extends Activity {
     private String pendingSpeech;
     private AlertDialog voiceDialog;
     private Uri cameraOutputUri;
+    private String avatarRoleId = "";
     private LocalModelManager modelManager;
 
     @Override
@@ -162,23 +167,44 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_WALLPAPER_CAMERA && requestCode != REQ_WALLPAPER_GALLERY) {
+        final boolean isAvatar = requestCode == REQ_AVATAR_CAMERA
+                || requestCode == REQ_AVATAR_GALLERY;
+        boolean isWallpaper = requestCode == REQ_WALLPAPER_CAMERA
+                || requestCode == REQ_WALLPAPER_GALLERY;
+        if (!isAvatar && !isWallpaper) {
             return;
         }
-        Uri source = requestCode == REQ_WALLPAPER_CAMERA
-                ? cameraOutputUri
-                : (data == null ? null : data.getData());
+        boolean fromCamera = requestCode == REQ_WALLPAPER_CAMERA
+                || requestCode == REQ_AVATAR_CAMERA;
+        Uri source = fromCamera ? cameraOutputUri : (data == null ? null : data.getData());
         cameraOutputUri = null;
+        final String roleId = isAvatar ? avatarRoleId : "";
+        avatarRoleId = "";
         if (resultCode != RESULT_OK || source == null) {
             return;
         }
         final Uri uri = source;
         new Thread(() -> {
-            final String dataUrl = encodeWallpaper(uri);
+            final String dataUrl = isAvatar ? encodeAvatar(uri) : encodeWallpaper(uri);
             runOnUiThread(() -> {
                 if (dataUrl == null) {
                     Toast.makeText(this, "读取图片失败，请换一张试试",
                             Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (isAvatar) {
+                    if (roleId.isEmpty()) {
+                        return;
+                    }
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putString(avatarKey(roleId), dataUrl).apply();
+                    if (roleId.equals(activeRoleId())) {
+                        applyAvatar(dataUrl);
+                    }
+                    if (webView == null) {
+                        showRoleList();
+                    }
+                    Toast.makeText(this, "头像已更换", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -609,20 +635,34 @@ public class MainActivity extends Activity {
         layout.addView(topRow, fullWidth());
 
         TextView hint = new TextView(this);
-        hint.setText("点角色即可切换，每个角色有独立的聊天记录。");
+        hint.setText("点角色即可切换；点自定义角色的头像可更换，小云头像固定。");
         hint.setTextSize(13);
         hint.setTextColor(Color.parseColor("#8A9099"));
         hint.setPadding(0, 8, 0, 16);
         layout.addView(hint, fullWidth());
 
-        // 默认角色：置顶且不可改名
-        TextView defaultRow = new TextView(this);
-        defaultRow.setText("小云（默认）" + (activeId.isEmpty() ? "（使用中）" : "")
-                + "\n系统默认角色，名字不可更改");
-        defaultRow.setTextSize(14);
-        defaultRow.setTextColor(Color.parseColor(activeId.isEmpty() ? "#1F2329" : "#4E5969"));
+        // 默认角色：置顶，名字和应用图标头像都不可更改
+        LinearLayout defaultRow = new LinearLayout(this);
+        defaultRow.setOrientation(LinearLayout.HORIZONTAL);
+        defaultRow.setGravity(Gravity.CENTER_VERTICAL);
         defaultRow.setPadding(0, 14, 0, 14);
         defaultRow.setOnClickListener(v -> selectRole(""));
+        ImageView defaultAvatar = new ImageView(this);
+        setRoleAvatar(defaultAvatar, "");
+        defaultAvatar.setContentDescription("小云头像，固定不可更换");
+        defaultAvatar.setOnClickListener(v -> showAvatarPicker(""));
+        int avatarSize = Math.round(44 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams defaultAvatarParams = new LinearLayout.LayoutParams(
+                avatarSize, avatarSize);
+        defaultAvatarParams.rightMargin = Math.round(10 * getResources().getDisplayMetrics().density);
+        defaultRow.addView(defaultAvatar, defaultAvatarParams);
+        TextView defaultInfo = new TextView(this);
+        defaultInfo.setText("小云（默认）" + (activeId.isEmpty() ? "（使用中）" : "")
+                + "\n系统默认角色，名字和头像不可更改");
+        defaultInfo.setTextSize(14);
+        defaultInfo.setTextColor(Color.parseColor(activeId.isEmpty() ? "#1F2329" : "#4E5969"));
+        defaultRow.addView(defaultInfo, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         layout.addView(defaultRow, fullWidth());
 
         for (int i = 0; i < roles.size(); i++) {
@@ -633,6 +673,15 @@ public class MainActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(0, 8, 0, 8);
+
+            ImageView avatar = new ImageView(this);
+            setRoleAvatar(avatar, role.id);
+            avatar.setContentDescription("更换" + role.name + "的头像");
+            avatar.setOnClickListener(v -> showAvatarPicker(role.id));
+            LinearLayout.LayoutParams avatarParams = new LinearLayout.LayoutParams(
+                    avatarSize, avatarSize);
+            avatarParams.rightMargin = Math.round(10 * getResources().getDisplayMetrics().density);
+            row.addView(avatar, avatarParams);
 
             TextView info = new TextView(this);
             String label = role.name + (role.gender.isEmpty() ? "" : "（" + role.gender + "）")
@@ -693,10 +742,12 @@ public class MainActivity extends Activity {
                         }
                     }
                     saveRoles(roles);
+                    SharedPreferences.Editor editor = getSharedPreferences(PREFS, MODE_PRIVATE)
+                            .edit().remove(avatarKey(role.id));
                     if (role.id.equals(activeRoleId())) {
-                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                                .putString(KEY_ACTIVE_ROLE, "").apply();
+                        editor.putString(KEY_ACTIVE_ROLE, "");
                     }
+                    editor.apply();
                     showRoleList();
                 })
                 .setNegativeButton("取消", null)
@@ -893,8 +944,127 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "已恢复默认背景", Toast.LENGTH_SHORT).show();
     }
 
-    /** 图片先缩到 1600 以内再转 data URL，避免占用太多存储空间。 */
+    // ---------------- 角色头像 ----------------
+
+    private String avatarKey(String roleId) {
+        return "avatar_" + roleId;
+    }
+
+    private String storedAvatar(String roleId) {
+        if (roleId == null || roleId.isEmpty()) {
+            return "";
+        }
+        return getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(avatarKey(roleId), "");
+    }
+
+    private void setRoleAvatar(ImageView view, String roleId) {
+        view.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        String dataUrl = storedAvatar(roleId);
+        if (!dataUrl.isEmpty()) {
+            try {
+                int comma = dataUrl.indexOf(',');
+                if (comma < 0) {
+                    throw new IllegalArgumentException("头像数据无效");
+                }
+                byte[] bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bitmap != null) {
+                    view.setImageBitmap(bitmap);
+                    return;
+                }
+            } catch (Exception | OutOfMemoryError ignored) {
+                // 数据损坏时回退应用图标
+            }
+        }
+        view.setImageResource(R.mipmap.ic_launcher);
+    }
+
+    private void showAvatarPicker(final String roleId) {
+        if (roleId == null || roleId.isEmpty()) {
+            Toast.makeText(this, "小云头像固定为应用图标，不能更换",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        avatarRoleId = roleId;
+        String[] items = {"拍照", "从相册选择", "恢复默认头像"};
+        new AlertDialog.Builder(this)
+                .setTitle("更换角色头像")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        takeAvatarPhoto();
+                    } else if (which == 1) {
+                        pickAvatarFromGallery();
+                    } else {
+                        resetAvatar(roleId);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void takeAvatarPhoto() {
+        try {
+            File dir = new File(getCacheDir(), "avatar");
+            File[] old = dir.listFiles();
+            if (old != null) {
+                for (File file : old) {
+                    //noinspection ResultOfMethodCallIgnored
+                    file.delete();
+                }
+            }
+            if (!dir.exists() && !dir.mkdirs()) {
+                throw new IllegalStateException("无法创建缓存目录");
+            }
+            File target = new File(dir, "capture.jpg");
+            cameraOutputUri = WallpaperFileProvider.uriFor(this, target);
+            Intent intent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+            intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, cameraOutputUri);
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            startActivityForResult(intent, REQ_AVATAR_CAMERA);
+        } catch (Exception e) {
+            cameraOutputUri = null;
+            avatarRoleId = "";
+            Toast.makeText(this, "无法打开相机：" + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void pickAvatarFromGallery() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(intent, REQ_AVATAR_GALLERY);
+        } catch (Exception e) {
+            avatarRoleId = "";
+            Toast.makeText(this, "无法打开相册：" + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void resetAvatar(String roleId) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .remove(avatarKey(roleId)).apply();
+        if (roleId.equals(activeRoleId())) {
+            applyAvatar("");
+        }
+        if (webView == null) {
+            showRoleList();
+        }
+        Toast.makeText(this, "已恢复默认头像", Toast.LENGTH_SHORT).show();
+    }
+
     private String encodeWallpaper(Uri uri) {
+        return encodeImage(uri, MAX_WALLPAPER_SIDE, false);
+    }
+
+    private String encodeAvatar(Uri uri) {
+        return encodeImage(uri, MAX_AVATAR_SIDE, true);
+    }
+
+    /** 头像居中裁成方形；壁纸只等比缩小，避免占用太多存储空间。 */
+    private String encodeImage(Uri uri, int maxSide, boolean square) {
         try {
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
@@ -909,7 +1079,7 @@ public class MainActivity extends Activity {
             }
             int longest = Math.max(bounds.outWidth, bounds.outHeight);
             int sample = 1;
-            while (longest / sample > MAX_WALLPAPER_SIDE) {
+            while (longest / sample > maxSide) {
                 sample *= 2;
             }
 
@@ -937,9 +1107,21 @@ public class MainActivity extends Activity {
 
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
-            int side = Math.max(width, height);
-            if (side > MAX_WALLPAPER_SIDE) {
-                float scale = (float) MAX_WALLPAPER_SIDE / side;
+            if (square && width != height) {
+                int crop = Math.min(width, height);
+                Bitmap cropped = Bitmap.createBitmap(bitmap,
+                        (width - crop) / 2, (height - crop) / 2, crop, crop);
+                if (cropped != bitmap) {
+                    bitmap.recycle();
+                    bitmap = cropped;
+                }
+                width = crop;
+                height = crop;
+            }
+
+            int side = square ? width : Math.max(width, height);
+            if ((square && side != maxSide) || (!square && side > maxSide)) {
+                float scale = (float) maxSide / side;
                 Bitmap scaled = Bitmap.createScaledBitmap(bitmap,
                         Math.max(1, Math.round(width * scale)),
                         Math.max(1, Math.round(height * scale)), true);
@@ -991,6 +1173,17 @@ public class MainActivity extends Activity {
                 ? "''" : "'" + dataUrl + "'";
         webView.evaluateJavascript(
                 "window.__applyWallpaper && window.__applyWallpaper(" + argument + ")",
+                null);
+    }
+
+    /** 通知网页切换当前角色头像；空字符串表示应用图标。 */
+    private void applyAvatar(String dataUrl) {
+        if (webView == null) {
+            return;
+        }
+        webView.evaluateJavascript(
+                "window.__applyAvatar && window.__applyAvatar("
+                        + JSONObject.quote(dataUrl == null ? "" : dataUrl) + ")",
                 null);
     }
 
@@ -1147,6 +1340,17 @@ public class MainActivity extends Activity {
         public String wallpaper() {
             return getSharedPreferences(PREFS, MODE_PRIVATE)
                     .getString(wallpaperKey(), "");
+        }
+
+        @JavascriptInterface
+        public void chooseAvatar() {
+            runOnUiThread(() -> showAvatarPicker(activeRoleId()));
+        }
+
+        /** 小云始终返回空串，由网页固定使用应用图标。 */
+        @JavascriptInterface
+        public String avatar() {
+            return storedAvatar(activeRoleId());
         }
 
         @JavascriptInterface

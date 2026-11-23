@@ -70,6 +70,9 @@
     '.desk-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;',
     'cursor:pointer;border:1px solid #eef0f3;margin-bottom:8px;}',
     '.desk-row.active{background:#f2f6ff;border-color:#c9d8ff;}',
+    '.desk-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;flex:none;',
+    'border:1px solid #e8eaed;background:#fff;cursor:pointer;}',
+    '.desk-avatar.locked{cursor:not-allowed;}',
     '.desk-row-main{flex:1;white-space:pre-line;line-height:1.5;color:#4e5969;}',
     '.desk-row.active .desk-row-main{color:#1f2329;}',
     '.desk-label{padding:12px 0 4px;font-size:13px;color:#4e5969;}',
@@ -136,11 +139,21 @@
   function showRoles() {
     openModal('角色', function (body, foot, close) {
       var active = activeRoleId();
-      body.appendChild(el('div', 'desk-hint', '点角色即可切换，每个角色有独立的聊天记录。'));
+      body.appendChild(el('div', 'desk-hint',
+        '点角色即可切换；点自定义角色的头像可更换，小云头像固定。'));
 
       var defaultRow = el('div', 'desk-row' + (active ? '' : ' active'));
+      var defaultAvatar = el('img', 'desk-avatar locked');
+      defaultAvatar.src = 'icon.svg';
+      defaultAvatar.alt = '小云头像';
+      defaultAvatar.title = '小云头像固定为应用图标，不能更换';
+      defaultAvatar.addEventListener('click', function (event) {
+        event.stopPropagation();
+        chooseAvatar('', true);
+      });
+      defaultRow.appendChild(defaultAvatar);
       defaultRow.appendChild(el('div', 'desk-row-main',
-        '小云（默认）' + (active ? '' : '（使用中）') + '\n系统默认角色，名字不可更改'));
+        '小云（默认）' + (active ? '' : '（使用中）') + '\n系统默认角色，名字和头像不可更改'));
       defaultRow.addEventListener('click', function () {
         setActiveRole('');
         close();
@@ -151,6 +164,15 @@
       var roles = loadRoles();
       roles.forEach(function (role, index) {
         var rowEl = el('div', 'desk-row' + (role.id === active ? ' active' : ''));
+        var avatar = el('img', 'desk-avatar');
+        avatar.src = storedAvatar(role.id) || 'icon.svg';
+        avatar.alt = role.name + '的头像';
+        avatar.title = '更换' + role.name + '的头像';
+        avatar.addEventListener('click', function (event) {
+          event.stopPropagation();
+          chooseAvatar(role.id, true);
+        });
+        rowEl.appendChild(avatar);
         var main = el('div', 'desk-row-main');
         var label = role.name + (role.gender ? '（' + role.gender + '）' : '')
           + (role.id === active ? '（使用中）' : '');
@@ -175,6 +197,7 @@
             var list = loadRoles();
             list.splice(index, 1);
             saveRoles(list);
+            try { LS.removeItem(avatarStorageKey(role.id)); } catch (e) { /* 忽略 */ }
             if (role.id === activeRoleId()) setActiveRole('');
             close();
             location.reload();
@@ -643,6 +666,116 @@
     });
   }
 
+  // ---------------- 角色头像 ----------------
+
+  function avatarStorageKey(roleId) {
+    return 'desktop_avatar_' + roleId;
+  }
+
+  function storedAvatar(roleId) {
+    if (!roleId) return '';
+    try { return LS.getItem(avatarStorageKey(roleId)) || ''; } catch (e) { return ''; }
+  }
+
+  function saveAvatar(roleId, dataUrl) {
+    try {
+      LS.setItem(avatarStorageKey(roleId), dataUrl);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function applyAvatar(url) {
+    if (window.__applyAvatar) window.__applyAvatar(url || '');
+  }
+
+  function handleAvatarFile(file, roleId, reopenRoles) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var image = new Image();
+      image.onload = function () {
+        var side = Math.min(image.width, image.height);
+        var canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        canvas.getContext('2d').drawImage(image,
+          (image.width - side) / 2, (image.height - side) / 2, side, side,
+          0, 0, 256, 256);
+        var dataUrl;
+        try {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        } catch (e) {
+          dataUrl = reader.result;
+        }
+        if (!saveAvatar(roleId, dataUrl)) {
+          alert('头像保存失败，请清理浏览器存储后重试');
+          return;
+        }
+        if (roleId === activeRoleId()) applyAvatar(dataUrl);
+        var mask = document.querySelector('.desk-mask');
+        if (mask) mask.remove();
+        if (reopenRoles) showRoles();
+      };
+      image.onerror = function () { alert('读取图片失败，请换一张试试'); };
+      image.src = reader.result;
+    };
+    reader.onerror = function () { alert('读取图片失败，请换一张试试'); };
+    reader.readAsDataURL(file);
+  }
+
+  function chooseAvatar(roleId, reopenRoles) {
+    if (typeof roleId !== 'string') roleId = activeRoleId();
+    if (!roleId) {
+      alert('小云头像固定为应用图标，不能更换');
+      return;
+    }
+    openModal('更换角色头像', function (body, foot, close) {
+      body.appendChild(el('div', 'desk-hint',
+        '可拍照或从相册选择，图片会居中裁切为方形；每个角色的头像互不影响。'));
+
+      var cameraInput = document.createElement('input');
+      cameraInput.type = 'file';
+      cameraInput.accept = 'image/*';
+      cameraInput.setAttribute('capture', 'environment');
+      cameraInput.style.display = 'none';
+      var albumInput = document.createElement('input');
+      albumInput.type = 'file';
+      albumInput.accept = 'image/*';
+      albumInput.style.display = 'none';
+      cameraInput.addEventListener('change', function () {
+        handleAvatarFile(this.files && this.files[0], roleId, reopenRoles);
+      });
+      albumInput.addEventListener('change', function () {
+        handleAvatarFile(this.files && this.files[0], roleId, reopenRoles);
+      });
+      body.append(cameraInput, albumInput);
+
+      var cameraRow = el('div', 'desk-row');
+      cameraRow.appendChild(el('div', 'desk-row-main', '拍照\n打开相机拍一张，直接用'));
+      cameraRow.addEventListener('click', function () { cameraInput.click(); });
+      body.appendChild(cameraRow);
+
+      var albumRow = el('div', 'desk-row');
+      albumRow.appendChild(el('div', 'desk-row-main', '从相册选择\n挑一张已有的照片'));
+      albumRow.addEventListener('click', function () { albumInput.click(); });
+      body.appendChild(albumRow);
+
+      var resetRow = el('div', 'desk-row');
+      resetRow.appendChild(el('div', 'desk-row-main', '恢复默认头像'));
+      resetRow.addEventListener('click', function () {
+        try { LS.removeItem(avatarStorageKey(roleId)); } catch (e) { /* 忽略 */ }
+        if (roleId === activeRoleId()) applyAvatar('');
+        close();
+        if (reopenRoles) showRoles();
+      });
+      body.appendChild(resetRow);
+
+      foot.appendChild(button('取消', '', close));
+    });
+  }
+
   // ---------------- 聊天壁纸 ----------------
 
   function wallpaperStorageKey() {
@@ -956,6 +1089,8 @@
     chooseVoice: chooseVoice,
     chooseWallpaper: chooseWallpaper,
     wallpaper: storedWallpaper,
+    chooseAvatar: function () { chooseAvatar(activeRoleId(), false); },
+    avatar: function () { return storedAvatar(activeRoleId()); },
     listModels: function () {
       return fetch('/api/models/').then(function (response) {
         return response.json();

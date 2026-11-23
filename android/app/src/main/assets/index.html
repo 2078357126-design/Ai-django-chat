@@ -23,7 +23,24 @@
     align-items: center;
     justify-content: space-between;
   }
-  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .title-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; white-space: nowrap; }
+  .header-avatar-btn {
+    padding: 0 !important;
+    border-radius: 50%;
+    flex: none;
+  }
+  .role-avatar.header-avatar { width: 30px; height: 30px; }
+  .role-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #fff;
+    border: 1px solid #e8eaed;
+    display: block;
+    flex: none;
+  }
   header .header-actions { display: flex; gap: 4px; }
   header button {
     border: none;
@@ -114,8 +131,23 @@
   }
   .btn-save { background: #3370ff; color: #fff; }
   .btn-cancel { background: #f2f3f5; color: #1f2329; }
+  .bot-line {
+    align-self: flex-start;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 92%;
+  }
+  .bot-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+  }
   .msg.bot {
     align-self: flex-start;
+    max-width: 100%;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -302,7 +334,12 @@
 </head>
 <body>
 <header>
-  <h1 id="app-title">AI云</h1>
+  <div class="title-wrap">
+    <button id="avatar" class="header-avatar-btn" type="button" title="角色头像">
+      <img id="header-avatar" class="role-avatar header-avatar" src="icon.svg" alt="角色头像">
+    </button>
+    <h1 id="app-title">AI云</h1>
+  </div>
   <div class="header-actions">
     <button id="models" type="button">模型</button>
     <button id="roles" type="button">角色</button>
@@ -376,6 +413,7 @@
   }
 
   var turns = [];
+  var currentAvatar = 'icon.svg';
 
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -671,11 +709,23 @@
     var bot = document.createElement('div');
     bot.className = 'msg bot';
 
+    var avatar = document.createElement('img');
+    avatar.className = 'role-avatar';
+    avatar.src = currentAvatar;
+    avatar.alt = '角色头像';
+
     var stickerEl = document.createElement('div');
     stickerEl.className = 'sticker-bubble';
     stickerEl.style.display = 'none';
 
-    el.append(user, bot, stickerEl);
+    var botStack = document.createElement('div');
+    botStack.className = 'bot-stack';
+    botStack.append(bot, stickerEl);
+    var botLine = document.createElement('div');
+    botLine.className = 'bot-line';
+    botLine.append(avatar, botStack);
+
+    el.append(user, botLine);
     messagesEl.appendChild(el);
 
     var t = {
@@ -1074,6 +1124,14 @@
     }
   });
 
+  document.getElementById('avatar').addEventListener('click', function () {
+    if (window.Android && Android.chooseAvatar) {
+      Android.chooseAvatar();
+    } else {
+      alert('更换头像请在 App 内使用');
+    }
+  });
+
   document.getElementById('update').addEventListener('click', function () {
     if (window.Android && Android.checkUpdate) {
       Android.checkUpdate();
@@ -1117,6 +1175,22 @@
   if (customRoleName) {
     document.getElementById('app-title').textContent = customRoleName;
     document.title = customRoleName;
+    document.getElementById('avatar').title = '更换「' + customRoleName + '」的头像';
+  } else {
+    document.getElementById('avatar').title = '小云头像固定为应用图标';
+  }
+
+  // 角色头像：小云始终用应用图标，自定义角色保存为本地图片
+  window.__applyAvatar = function (url) {
+    currentAvatar = url || 'icon.svg';
+    document.getElementById('header-avatar').src = currentAvatar;
+    var avatars = messagesEl.querySelectorAll('.role-avatar');
+    for (var i = 0; i < avatars.length; i++) avatars[i].src = currentAvatar;
+  };
+  if (window.Android && typeof Android.avatar === 'function') {
+    try {
+      window.__applyAvatar(Android.avatar());
+    } catch (e) { window.__applyAvatar(''); }
   }
 
   // 聊天壁纸：由原生层按当前角色保存，进来时自动恢复

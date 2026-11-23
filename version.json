@@ -1,6 +1,6 @@
 {
-  "versionCode": 31,
-  "versionName": "3.4",
+  "versionCode": 32,
+  "versionName": "3.5",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "表情包大升级：抽象、搞笑、土味、可爱、明星范等 92 种表情，带台词配文，聊到相关话题自动配图。"
+  "notes": "新增角色头像：小云固定使用应用图标；自定义角色可拍照或从相册更换头像，也可恢复默认，头像按角色独立保存。"
 }

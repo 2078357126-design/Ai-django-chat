@@ -16,7 +16,7 @@ from openai import OpenAI, OpenAIError
 from . import local_models
 from .models import ChatRecord
 
-APP_VERSION = '3.6'
+APP_VERSION = '3.6.1'
 MAX_KEYS = 3
 MAX_STORY = 1000
 # 带给模型的上文：条数和字数都限制，避免上下文过长拖慢回答

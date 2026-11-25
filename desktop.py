@@ -109,11 +109,12 @@ def main():
         or preset.get('OPENAI_BASE_URL')
         or 'https://api.deepseek.com'
     )
-    os.environ['OPENAI_MODEL'] = (
-        config.get('OPENAI_MODEL')
-        or preset.get('OPENAI_MODEL')
-        or 'deepseek-chat'
-    )
+    # 旧版本把极速版写进了 config.env，升级后自动换成包里预置的新模型；
+    # 用户自己配的其它模型名保持不动
+    stored_model = config.get('OPENAI_MODEL') or ''
+    if not stored_model or stored_model == 'deepseek-flash':
+        stored_model = preset.get('OPENAI_MODEL') or 'deepseek-chat'
+    os.environ['OPENAI_MODEL'] = stored_model
 
     import django
     from django.core.management import call_command

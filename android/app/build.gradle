@@ -11,8 +11,8 @@ android {
         applicationId 'com.aichat.app'
         minSdk 24
         targetSdk 34
-        versionCode 33
-        versionName '3.6'
+        versionCode 34
+        versionName '3.6.1'
 
         ndk {
             // 本地推理引擎只编 64 位 ARM，覆盖绝大多数手机

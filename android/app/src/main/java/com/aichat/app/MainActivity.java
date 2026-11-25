@@ -4,7 +4,10 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.job.JobInfo;
+import android.app.job.JobScheduler;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -153,6 +156,39 @@ public class MainActivity extends Activity {
         }
         lastUpdateCheck = System.currentTimeMillis();
         new Thread(this::checkForUpdate).start();
+        scheduleBackgroundUpdateCheck();
+        requestNotificationPermission();
+    }
+
+    /** 后台定时检查更新：App 没打开也能发系统通知（系统最小间隔 15 分钟）。 */
+    private void scheduleBackgroundUpdateCheck() {
+        try {
+            JobScheduler scheduler = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
+            if (scheduler == null) {
+                return;
+            }
+            JobInfo job = new JobInfo.Builder(UpdateCheckService.JOB_ID,
+                    new ComponentName(this, UpdateCheckService.class))
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setPeriodic(15 * 60 * 1000L)
+                    .setPersisted(true)
+                    .build();
+            scheduler.schedule(job);
+        } catch (Exception ignored) {
+            // 个别机型不支持任务调度时，退回「打开 App 才检查」
+        }
+    }
+
+    /** Android 13+ 需要用户允许通知，否则后台提醒发不出来。 */
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 4101);
     }
 
     @Override

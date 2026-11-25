@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <queries>
         <intent>
@@ -33,6 +34,12 @@
             android:authorities="${applicationId}.wallpaperfile"
             android:exported="false"
             android:grantUriPermissions="true" />
+
+        <!-- 后台定时检查新版本，App 没打开也能发系统通知 -->
+        <service
+            android:name=".UpdateCheckService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 
 </manifest>

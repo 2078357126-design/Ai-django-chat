@@ -112,7 +112,7 @@ def main():
     os.environ['OPENAI_MODEL'] = (
         config.get('OPENAI_MODEL')
         or preset.get('OPENAI_MODEL')
-        or 'deepseek-flash'
+        or 'deepseek-chat'
     )
 
     import django

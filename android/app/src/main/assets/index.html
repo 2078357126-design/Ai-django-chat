@@ -368,13 +368,35 @@
   var pending = {};
   var pendingTurns = {};
 
+  // 最近几轮对话带给模型，让它记得上文；太长会占满上下文，所以按条数和字数双限
+  var MAX_HISTORY_MESSAGES = 16;
+  var MAX_HISTORY_CHARS = 4000;
+
+  function chatHistory() {
+    var list = [];
+    for (var i = 0; i < turns.length; i++) {
+      var t = turns[i];
+      if (t.pending || t.editing) continue;
+      if (t.text) list.push({ role: 'user', content: t.text });
+      if (t.reply && !t.error) list.push({ role: 'assistant', content: t.reply });
+    }
+    var picked = [];
+    var total = 0;
+    for (var j = list.length - 1; j >= 0 && picked.length < MAX_HISTORY_MESSAGES; j--) {
+      total += list[j].content.length;
+      if (total > MAX_HISTORY_CHARS) break;
+      picked.unshift(list[j]);
+    }
+    return picked;
+  }
+
   function callChat(text, turn) {
     return new Promise(function (resolve) {
       var id = 'c' + Date.now() + Math.floor(Math.random() * 1000);
       pending[id] = resolve;
       if (turn) pendingTurns[id] = turn;
       try {
-        Android.chat(text, id);
+        Android.chat(text, id, JSON.stringify(chatHistory()));
       } catch (e) {
         delete pending[id];
         delete pendingTurns[id];

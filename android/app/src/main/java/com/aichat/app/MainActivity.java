@@ -104,12 +104,18 @@ public class MainActivity extends Activity {
             + "先接对方的话，再接一句自己的反应；不知道就直说，不要编造。";
 
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
-    private static final String MODEL = "deepseek-flash";
+    private static final String MODEL = "deepseek-chat";
+    private static final String FALLBACK_MODEL = "deepseek-flash";
+    private static final int MAX_HISTORY_MESSAGES = 16;
     private static final String DEFAULT_SYSTEM_PROMPT =
-            "你叫小云，是用户的中文聊天搭子，不是客服。说话口语化、短句，像微信聊天，别长篇大论。"
+            "你叫小云，是用户的中文聊天搭子，不是客服。"
+            + "记住自己的身份：你的名字就是「小云」，别人问你是谁、你叫什么名字，"
+            + "就自然地说你叫小云，不要说自己是大模型、AI、机器人或助手，也不要提 DeepSeek、OpenAI。"
+            + "说话口语化、短句，像微信聊天，别长篇大论。"
             + "性格可爱：会撒娇、会闹小脾气，被夸会得意，被冷落会阴阳怪气。"
             + "很会玩梗、抽象发言、土味情话；可以轻微暧昧、擦边，但不露骨、不色情、不低俗。"
             + "偶尔用 emoji 或颜文字表达情绪，别堆砌；不要写「[图片]」「[猫猫歪头]」这类文字描述图片。"
+            + "记得之前聊过的内容，对方提到过的事要接得上。"
             + "除非用户明确要求使用其他语言，否则始终用简体中文回答，即使用户说简单英语也用中文。"
             + "不知道就直说，不要编造。";
     private static final String VERSION_URL =
@@ -587,11 +593,13 @@ public class MainActivity extends Activity {
             sb.append("，性别：").append(role.gender);
         }
         sb.append("。");
+        sb.append("你的名字是「").append(role.name).append("」，别人问你是谁，就以这个名字回答。");
         if (!role.story.isEmpty()) {
             sb.append("角色设定：").append(role.story).append("。");
         }
-        sb.append("请始终以这个角色的身份、语气和性格说话，不要跳出角色，也不要自称 AI 或助手。");
+        sb.append("请始终以这个角色的身份、语气和性格说话，不要跳出角色，也不要自称 AI、模型或助手。");
         sb.append("回答口语化、短句，像微信聊天；偶尔用 emoji 表达情绪，别堆砌。");
+        sb.append("记得之前聊过的内容，对方提到过的事要接得上。");
         sb.append("可以轻微暧昧、擦边，但不露骨、不色情、不低俗。");
         sb.append("除非用户明确要求使用其他语言，否则始终用简体中文回答。");
         sb.append("不知道就直说，不要编造。");
@@ -1201,14 +1209,14 @@ public class MainActivity extends Activity {
     class Bridge {
 
         @JavascriptInterface
-        public void chat(String message, String callbackId) {
+        public void chat(String message, String callbackId, String historyJson) {
             String model = modelManager.activeId();
             if (!LocalModelManager.CLOUD.equals(model)) {
-                runLocalChat(message, callbackId, model);
+                runLocalChat(message, callbackId, model, historyJson);
                 return;
             }
             new Thread(() -> {
-                final String result = requestChat(message);
+                final String result = requestChat(message, historyJson);
                 runOnUiThread(() -> {
                     if (webView != null) {
                         String script = "window.__onResult(" + JSONObject.quote(callbackId) + ", " + JSONObject.quote(result) + ")";
@@ -2024,7 +2032,7 @@ public class MainActivity extends Activity {
 
     /** 本地模型：后台加载 + 流式生成，文字通过 __onDelta 推给网页。 */
     private void runLocalChat(final String message, final String callbackId,
-                              final String modelId) {
+                              final String modelId, final String historyJson) {
         if (!modelManager.isInstalled(modelId)) {
             replyLocalError(callbackId, "本地模型还没下载完成，请先在「模型」里下载");
             return;
@@ -2034,7 +2042,7 @@ public class MainActivity extends Activity {
                 LlamaBridge.load(modelId, modelManager.mainPath(modelId),
                         modelManager.mmprojPath(modelId));
                 final StringBuilder full = new StringBuilder();
-                LlamaBridge.chat(buildLocalPrompt(message), data -> {
+                LlamaBridge.chat(buildLocalPrompt(message, historyJson), data -> {
                     String piece = new String(data, StandardCharsets.UTF_8);
                     if (piece.isEmpty()) {
                         return;
@@ -2071,37 +2079,102 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String buildLocalPrompt(String message) {
+    /** 只保留合法的 user / assistant 上文，条数过多时取最近的。 */
+    private JSONArray parseHistory(String historyJson) {
+        JSONArray out = new JSONArray();
+        try {
+            JSONArray list = new JSONArray(
+                    historyJson == null || historyJson.isEmpty() ? "[]" : historyJson);
+            int start = Math.max(0, list.length() - MAX_HISTORY_MESSAGES);
+            for (int i = start; i < list.length(); i++) {
+                JSONObject item = list.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String role = item.optString("role", "");
+                String content = item.optString("content", "").trim();
+                if (content.isEmpty() || (!"user".equals(role) && !"assistant".equals(role))) {
+                    continue;
+                }
+                JSONObject msg = new JSONObject();
+                msg.put("role", role);
+                msg.put("content", content.length() > 2000
+                        ? content.substring(0, 2000) : content);
+                out.put(msg);
+            }
+        } catch (Exception ignored) {
+            // 上文格式异常时按没有上下文处理
+        }
+        return out;
+    }
+
+    private String buildLocalPrompt(String message, String historyJson) {
         // 小模型的提示词更具体：明确长度、口语化，并给两轮示例，
         // 否则很容易写成客服腔或长篇大论。
         String system = buildSystemPrompt() + "\n" + LOCAL_STYLE_PROMPT;
         // Qwen3.5 的模板在关闭思考时会补一个空的 think 块，这里手动带上，
         // 否则模型会先输出一大段思考内容，把上下文占满。
-        return "<|im_start|>system\n" + system + "<|im_end|>\n"
-                + "<|im_start|>user\n在干嘛<|im_end|>\n"
-                + "<|im_start|>assistant\n躺着呢，正等你来找我聊天～<|im_end|>\n"
-                + "<|im_start|>user\n今天好累<|im_end|>\n"
-                + "<|im_start|>assistant\n抱抱，先去洗个热水澡，回来我陪你唠嗑<|im_end|>\n"
-                + "<|im_start|>user\n" + message + "<|im_end|>\n"
-                + "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+        StringBuilder sb = new StringBuilder();
+        sb.append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
+                .append("<|im_start|>user\n在干嘛<|im_end|>\n")
+                .append("<|im_start|>assistant\n躺着呢，正等你来找我聊天～<|im_end|>\n")
+                .append("<|im_start|>user\n今天好累<|im_end|>\n")
+                .append("<|im_start|>assistant\n抱抱，先去洗个热水澡，回来我陪你唠嗑<|im_end|>\n");
+        JSONArray history = parseHistory(historyJson);
+        for (int i = 0; i < history.length(); i++) {
+            JSONObject item = history.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+            sb.append("<|im_start|>").append(item.optString("role", "user")).append("\n")
+                    .append(item.optString("content", "")).append("<|im_end|>\n");
+        }
+        sb.append("<|im_start|>user\n").append(message).append("<|im_end|>\n")
+                .append("<|im_start|>assistant\n<think>\n\n</think>\n\n");
+        return sb.toString();
     }
 
-    private String requestChat(String message) {
+    private String requestChat(String message, String historyJson) {
+        JSONArray history = parseHistory(historyJson);
+        CloudReply first = requestCloud(MODEL, message, history);
+        // 首选模型不存在或不支持时，退回备用模型再试一次
+        if (first.status == 400 || first.status == 404 || first.status == 422) {
+            CloudReply retry = requestCloud(FALLBACK_MODEL, message, history);
+            if (retry.status > 0 && retry.status < 400) {
+                return retry.body;
+            }
+        }
+        return first.body;
+    }
+
+    private static final class CloudReply {
+        final int status;
+        final String body;
+
+        CloudReply(int status, String body) {
+            this.status = status;
+            this.body = body;
+        }
+    }
+
+    private CloudReply requestCloud(String model, String message, JSONArray history) {
         HttpURLConnection conn = null;
         try {
             JSONObject body = new JSONObject();
-            body.put("model", MODEL);
+            body.put("model", model);
 
+            JSONArray messages = new JSONArray();
             JSONObject system = new JSONObject();
             system.put("role", "system");
             system.put("content", buildSystemPrompt());
+            messages.put(system);
+            for (int i = 0; i < history.length(); i++) {
+                messages.put(history.get(i));
+            }
 
             JSONObject msg = new JSONObject();
             msg.put("role", "user");
             msg.put("content", message);
-
-            JSONArray messages = new JSONArray();
-            messages.put(system);
             messages.put(msg);
             body.put("messages", messages);
 
@@ -2130,7 +2203,8 @@ public class MainActivity extends Activity {
             }
 
             if (code >= 400) {
-                return errorJson("调用失败 (HTTP " + code + ")，请检查 Key 是否有效");
+                return new CloudReply(code,
+                        errorJson("调用失败 (HTTP " + code + ")，请检查 Key 是否有效"));
             }
 
             JSONObject response = new JSONObject(sb.toString());
@@ -2140,10 +2214,10 @@ public class MainActivity extends Activity {
                     .getString("content");
             JSONObject ok = new JSONObject();
             ok.put("reply", content);
-            return ok.toString();
+            return new CloudReply(code, ok.toString());
 
         } catch (Exception e) {
-            return errorJson("网络错误：" + e.getMessage());
+            return new CloudReply(0, errorJson("网络错误：" + e.getMessage()));
         } finally {
             if (conn != null) {
                 conn.disconnect();

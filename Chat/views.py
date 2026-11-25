@@ -16,9 +16,14 @@ from openai import OpenAI, OpenAIError
 from . import local_models
 from .models import ChatRecord
 
-APP_VERSION = '3.5'
+APP_VERSION = '3.6'
 MAX_KEYS = 3
 MAX_STORY = 1000
+# 带给模型的上文：条数和字数都限制，避免上下文过长拖慢回答
+MAX_HISTORY_MESSAGES = 16
+MAX_HISTORY_CHARS = 4000
+# 首选模型不可用时退回的备用模型（仅对 DeepSeek 生效）
+FALLBACK_MODEL = 'deepseek-flash'
 
 
 def _resource_base():
@@ -161,7 +166,7 @@ def _persist_keys(keys):
     if keys:
         lines.append('OPENAI_API_KEY=' + keys[0])
     lines.append('OPENAI_BASE_URL=' + (settings.OPENAI_BASE_URL or 'https://api.deepseek.com'))
-    lines.append('OPENAI_MODEL=' + (settings.OPENAI_MODEL or 'deepseek-flash'))
+    lines.append('OPENAI_MODEL=' + (settings.OPENAI_MODEL or 'deepseek-chat'))
     config_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
@@ -379,10 +384,14 @@ def pwa_icon(request):
 
 
 _SYSTEM_PROMPT = (
-    '你叫小云，是用户的中文聊天搭子，不是客服。说话口语化、短句，像微信聊天，别长篇大论。'
+    '你叫小云，是用户的中文聊天搭子，不是客服。'
+    '记住自己的身份：你的名字就是「小云」，别人问你是谁、你叫什么名字，'
+    '就自然地说你叫小云，不要说自己是大模型、AI、机器人或助手，也不要提 DeepSeek、OpenAI。'
+    '说话口语化、短句，像微信聊天，别长篇大论。'
     '性格可爱：会撒娇、会闹小脾气，被夸会得意，被冷落会阴阳怪气。'
     '很会玩梗、抽象发言、土味情话；可以轻微暧昧、擦边，但不露骨、不色情、不低俗。'
     '偶尔用 emoji 或颜文字表达情绪，别堆砌；不要写「[图片]」「[猫猫歪头]」这类文字描述图片。'
+    '记得之前聊过的内容，对方提到过的事要接得上。'
     '除非用户明确要求使用其他语言，否则始终用简体中文回答，即使用户说简单英语也用中文。'
     '不知道就直说，不要编造。'
 )
@@ -402,30 +411,73 @@ def _build_system_prompt(role=None):
     if gender:
         parts.append('，性别：' + gender)
     parts.append('。')
+    parts.append('你的名字是「' + name + '」，别人问你是谁，就以这个名字回答。')
     if story:
         parts.append('角色设定：' + story + '。')
-    parts.append('请始终以这个角色的身份、语气和性格说话，不要跳出角色，也不要自称 AI 或助手。')
+    parts.append('请始终以这个角色的身份、语气和性格说话，不要跳出角色，'
+                 '也不要自称 AI、模型或助手。')
     parts.append('回答口语化、短句，像微信聊天；偶尔用 emoji 表达情绪，别堆砌。')
+    parts.append('记得之前聊过的内容，对方提到过的事要接得上。')
     parts.append('可以轻微暧昧、擦边，但不露骨、不色情、不低俗。')
     parts.append('除非用户明确要求使用其他语言，否则始终用简体中文回答。')
     parts.append('不知道就直说，不要编造。')
     return ''.join(parts)
 
 
-def _generate_reply(message, model, role=None):
+def _parse_history(raw):
+    """校验网页带来的上文，只保留 user / assistant 两类消息。"""
+    if not isinstance(raw, list):
+        return []
+    items = []
+    for item in raw[-MAX_HISTORY_MESSAGES:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get('role')
+        content = str(item.get('content') or '').strip()
+        if role not in ('user', 'assistant') or not content:
+            continue
+        items.append({'role': role, 'content': content[:2000]})
+    picked = []
+    total = 0
+    for item in reversed(items):
+        total += len(item['content'])
+        if total > MAX_HISTORY_CHARS:
+            break
+        picked.append(item)
+    return list(reversed(picked))
+
+
+def _model_candidates(model):
+    """DeepSeek 首选模型失败时，退回更轻的备用模型。"""
+    if model and 'deepseek' in model and model != FALLBACK_MODEL:
+        return [model, FALLBACK_MODEL]
+    return [model]
+
+
+def _generate_reply(message, model, role=None, history=None):
     """调用 OpenAI 兼容接口，返回回复文本。"""
     client = OpenAI(
         api_key=settings.OPENAI_API_KEY,
         base_url=settings.OPENAI_BASE_URL or None,
     )
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {'role': 'system', 'content': _build_system_prompt(role)},
-            {'role': 'user', 'content': message},
-        ],
-    )
-    return completion.choices[0].message.content or ''
+    messages = [{'role': 'system', 'content': _build_system_prompt(role)}]
+    messages.extend(history or [])
+    messages.append({'role': 'user', 'content': message})
+
+    last_error = None
+    for candidate in _model_candidates(model):
+        try:
+            completion = client.chat.completions.create(
+                model=candidate,
+                messages=messages,
+            )
+            return completion.choices[0].message.content or ''
+        except OpenAIError as exc:
+            last_error = exc
+            # Key 无效时换模型也没用，直接报错
+            if getattr(exc, 'status_code', None) in (401, 403):
+                break
+    raise last_error
 
 
 def _client_ip(request):
@@ -489,8 +541,9 @@ def _local_chat(request, payload, model_id):
         {'role': 'assistant', 'content': '躺着呢，正等你来找我聊天～'},
         {'role': 'user', 'content': '今天好累'},
         {'role': 'assistant', 'content': '抱抱，先去洗个热水澡，回来我陪你唠嗑'},
-        {'role': 'user', 'content': message},
     ]
+    messages.extend(_parse_history(payload.get('history')))
+    messages.append({'role': 'user', 'content': message})
     client = OpenAI(api_key='local', base_url=base_url + '/v1')
     # 关掉思考过程，否则小模型会先输出一大段推理，回答迟迟不出来
     options = {
@@ -546,7 +599,7 @@ def chat(request):
     """POST /api/chat/
 
     请求体：{"message": "你好", "session_id": "可选", "model": "可选"}
-    响应体：{"reply": "...", "record_id": 1, "model": "deepseek-flash"}
+    响应体：{"reply": "...", "record_id": 1, "model": "deepseek-chat"}
     """
     payload, error = _read_payload(request)
     if error:
@@ -560,12 +613,14 @@ def chat(request):
         return JsonResponse({'error': '未配置 OPENAI_API_KEY 环境变量'}, status=500)
 
     message = payload['message']
-    model = payload.get('model') or settings.OPENAI_MODEL
+    # model 传的是「cloud」这种模式标记，具体模型名以配置为准
+    model = settings.OPENAI_MODEL
     session_id = (payload.get('session_id') or '').strip()
     role = payload.get('role')
+    history = _parse_history(payload.get('history'))
 
     try:
-        reply = _generate_reply(message, model, role)
+        reply = _generate_reply(message, model, role, history)
     except OpenAIError as exc:
         return JsonResponse({'error': f'调用 OpenAI 失败: {exc}'}, status=502)
 
@@ -606,11 +661,14 @@ def chat_edit(request, record_id):
         return JsonResponse({'error': '未配置 OPENAI_API_KEY 环境变量'}, status=500)
 
     message = payload['message']
-    model = payload.get('model') or record.model_name or settings.OPENAI_MODEL
+    model = record.model_name or settings.OPENAI_MODEL
+    if model == 'cloud':
+        model = settings.OPENAI_MODEL
     role = payload.get('role')
+    history = _parse_history(payload.get('history'))
 
     try:
-        reply = _generate_reply(message, model, role)
+        reply = _generate_reply(message, model, role, history)
     except OpenAIError as exc:
         return JsonResponse({'error': f'调用 OpenAI 失败: {exc}'}, status=502)
 

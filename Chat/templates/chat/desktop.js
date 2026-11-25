@@ -1038,7 +1038,7 @@
     return pump();
   }
 
-  function chat(text, callbackId) {
+  function chat(text, callbackId, historyJson) {
     var role = findRole(activeRoleId());
     var model = desktopActiveModel();
     var payload = {
@@ -1047,6 +1047,10 @@
       visitor_id: visitorId(),
       model: model
     };
+    try {
+      var history = JSON.parse(historyJson || '[]');
+      if (Array.isArray(history) && history.length) payload.history = history;
+    } catch (e) { /* 历史格式异常时按无上下文处理 */ }
     if (role) {
       payload.role = { name: role.name, gender: role.gender, story: role.story };
     }
@@ -1137,7 +1141,7 @@
         if (window.__deleteTurn) window.__deleteTurn(index);
       }
     },
-    modelName: function () { return 'deepseek-flash'; }
+    modelName: function () { return 'deepseek-chat'; }
   };
 
   // 与本地服务同步当前模型，并接管刷新前就在进行的下载

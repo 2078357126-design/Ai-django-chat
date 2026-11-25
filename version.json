@@ -1,6 +1,6 @@
 {
-  "versionCode": 32,
-  "versionName": "3.5",
+  "versionCode": 33,
+  "versionName": "3.6",
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "新增角色头像：小云固定使用应用图标；自定义角色可拍照或从相册更换头像，也可恢复默认，头像按角色独立保存。"
+  "notes": "更聪明也更有记性：云端模型升级为 deepseek-chat，聊天会带上最近的上文，能接住之前聊过的话题、记住你的信息；小云也清楚自己叫小云，被问身份不会再说自己是 AI。"
 }

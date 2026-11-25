@@ -17,4 +17,4 @@ services:
       - key: OPENAI_BASE_URL
         value: https://api.deepseek.com
       - key: OPENAI_MODEL
-        value: deepseek-flash
+        value: deepseek-chat

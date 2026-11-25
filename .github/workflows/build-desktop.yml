@@ -46,7 +46,7 @@ jobs:
             echo "未配置 OPENAI_API_KEY Secret，安装包将要求用户自行填写"
             exit 0
           fi
-          printf 'OPENAI_API_KEY=%s\nOPENAI_BASE_URL=https://api.deepseek.com\nOPENAI_MODEL=deepseek-flash\n' "$PRESET_KEY" > preset.env
+          printf 'OPENAI_API_KEY=%s\nOPENAI_BASE_URL=https://api.deepseek.com\nOPENAI_MODEL=deepseek-chat\n' "$PRESET_KEY" > preset.env
 
       - name: 下载本地推理组件
         if: runner.os != 'Windows'

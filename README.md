@@ -19,4 +19,4 @@ Django + OpenAI 兼容接口的网页聊天应用，带对话记录存储与消�
 
 - `OPENAI_API_KEY`（必填）
 - `OPENAI_BASE_URL`（可选，默认 `https://api.deepseek.com`）
-- `OPENAI_MODEL`（可选，默认 `deepseek-flash`）
+- `OPENAI_MODEL`（可选，默认 `deepseek-chat`）

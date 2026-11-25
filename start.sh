@@ -26,7 +26,7 @@ if [ -z "${OPENAI_API_KEY:-}" ]; then
       {
         printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
         printf 'OPENAI_BASE_URL=%s\n' "${OPENAI_BASE_URL:-https://api.deepseek.com}"
-        printf 'OPENAI_MODEL=%s\n' "${OPENAI_MODEL:-deepseek-flash}"
+        printf 'OPENAI_MODEL=%s\n' "${OPENAI_MODEL:-deepseek-chat}"
       } > "$ENV_FILE"
       chmod 600 "$ENV_FILE"
       echo "已保存到 .env，以后启动不再询问。"
@@ -36,7 +36,7 @@ fi
 
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://api.deepseek.com}"
-export OPENAI_MODEL="${OPENAI_MODEL:-deepseek-flash}"
+export OPENAI_MODEL="${OPENAI_MODEL:-deepseek-chat}"
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"

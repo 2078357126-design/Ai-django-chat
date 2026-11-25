@@ -195,6 +195,46 @@
     border: 1px solid #ffccc7;
   }
   .msg.pending { color: #8a9099; }
+  /* 更新通知：像一条系统消息，不打断当前操作 */
+  .msg.notice {
+    align-self: center;
+    width: 100%;
+    max-width: 92%;
+    background: #eef3ff;
+    border: 1px solid #c9d8ff;
+    color: #1f2329;
+    font-size: 12px;
+    line-height: 1.6;
+    border-radius: 10px;
+  }
+  .notice-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .notice-head span { flex: 1; }
+  .notice-close {
+    padding: 0 2px;
+    border: none;
+    background: none;
+    color: #8a9099;
+    font-size: 15px;
+    line-height: 1;
+  }
+  .notice-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .notice-actions button {
+    height: 26px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    background: #3370ff;
+    color: #fff;
+  }
+  .notice-actions button.ghost { background: #fff; color: #3370ff; }
   form {
     display: flex;
     gap: 8px;
@@ -1233,8 +1273,81 @@
     } catch (e) { /* 拿不到壁纸时保持默认背景 */ }
   }
 
+  // 更新通知：像一条消息出现在聊天里，所有角色都能看到；
+  // 同一版本点过关闭后不再打扰，发了新版本会再通知
+  window.__showUpdateNotice = function (raw) {
+    var info = raw;
+    if (typeof raw === 'string') {
+      try { info = JSON.parse(raw); } catch (e) { return; }
+    }
+    if (!info || info.notify === false) return;
+    var version = (info.version || '').trim();
+    var notes = (info.notes || '').trim();
+    if (!notes) return;
+    var key = 'aichat_update_notice_' + (version || 'unknown');
+    try {
+      if (localStorage.getItem(key) === 'closed') return;
+    } catch (e) { /* 忽略 */ }
+
+    var old = document.getElementById('update-notice');
+    if (old) old.remove();
+
+    var box = document.createElement('div');
+    box.id = 'update-notice';
+    box.className = 'msg notice';
+
+    var head = document.createElement('div');
+    head.className = 'notice-head';
+    var title = document.createElement('span');
+    title.textContent = info.newVersion
+      ? '发现新版本 ' + version
+      : '更新内容 · ' + version;
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'notice-close';
+    close.textContent = '×';
+    close.addEventListener('click', function () {
+      try { localStorage.setItem(key, 'closed'); } catch (e) { /* 忽略 */ }
+      box.remove();
+    });
+    head.append(title, close);
+    box.appendChild(head);
+
+    var body = document.createElement('div');
+    body.textContent = notes;
+    box.appendChild(body);
+
+    if (info.newVersion && info.url) {
+      var actions = document.createElement('div');
+      actions.className = 'notice-actions';
+      var updateBtn = document.createElement('button');
+      updateBtn.type = 'button';
+      updateBtn.textContent = '立即更新';
+      updateBtn.addEventListener('click', function () {
+        if (window.Android && typeof Android.openUpdate === 'function') {
+          Android.openUpdate(info.url);
+        } else {
+          window.open('https://github.com/2078357126-design/Ai-django-chat/releases/latest', '_blank');
+        }
+      });
+      actions.appendChild(updateBtn);
+      box.appendChild(actions);
+    }
+
+    messagesEl.appendChild(box);
+    scrollToBottom();
+  };
+
   // 延迟一拍，确保原生桥接已就绪后再读取角色和记录
   setTimeout(restoreHistory, 0);
+
+  // 原生层已经拿到更新说明时直接显示，页面后加载也不会漏
+  if (window.Android && typeof Android.updateNotice === 'function') {
+    try {
+      var pendingNotice = Android.updateNotice();
+      if (pendingNotice) window.__showUpdateNotice(pendingNotice);
+    } catch (e) { /* 忽略 */ }
+  }
 </script>
 </body>
 </html>

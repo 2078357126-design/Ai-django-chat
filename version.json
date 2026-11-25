@@ -3,5 +3,5 @@
   "versionName": "3.6.1",
   "notify": true,
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "本地模型（Qwen3.5）与云端共用同一套人设、记忆和提示词，回答更自然、更像小云；新增更新通知弹窗，每次更新后首次打开会展示本版更新内容，版本说明里写 notify: false 时不弹。"
+  "notes": "本地模型（Qwen3.5）与云端共用同一套人设、记忆和提示词，回答更自然、更像小云；更新通知改成聊天里的消息，更新后第一时间出现，不弹窗、不打断聊天，所有角色都能看到。"
 }

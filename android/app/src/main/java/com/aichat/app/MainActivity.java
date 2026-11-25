@@ -80,7 +80,6 @@ public class MainActivity extends Activity {
     private static final String KEY_ACTIVE = "voice_active";
     private static final String KEY_ROLES = "roles";
     private static final String KEY_ACTIVE_ROLE = "active_role";
-    private static final String KEY_NOTICE_VERSION = "notice_version";
     private static final int MAX_STORY = 1000;
     private static final int MAX_PRESETS = 5;
     private static final String[] SAMPLE_POOL = {
@@ -138,6 +137,7 @@ public class MainActivity extends Activity {
     private AlertDialog voiceDialog;
     private Uri cameraOutputUri;
     private String avatarRoleId = "";
+    private String pendingUpdateNotice = "";
     private LocalModelManager modelManager;
 
     @Override
@@ -1362,6 +1362,20 @@ public class MainActivity extends Activity {
             runOnUiThread(MainActivity.this::manualCheckForUpdate);
         }
 
+        /** 网页加载后取一次更新说明，避免检查比页面先完成时漏掉。 */
+        @JavascriptInterface
+        public String updateNotice() {
+            return pendingUpdateNotice;
+        }
+
+        @JavascriptInterface
+        public void openUpdate(String url) {
+            if (url == null || url.isEmpty()) {
+                return;
+            }
+            runOnUiThread(() -> downloadAndInstall(url));
+        }
+
         @JavascriptInterface
         public String activeRole() {
             return activeRoleId();
@@ -2288,7 +2302,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 启动时在后台检查更新：有新版本提示升级，同版本则弹一次更新说明。 */
+    /** 启动时在后台检查更新：拿到说明后作为一条消息推到聊天界面，不弹窗。 */
     private void checkForUpdate() {
         try {
             JSONObject info = fetchRemoteVersion();
@@ -2299,37 +2313,26 @@ public class MainActivity extends Activity {
             final String remoteName = info.optString("versionName", "");
             final String apkUrl = info.optString("url", "");
             final String notes = info.optString("notes", "");
-            // 未写 notify 时默认发送，明确写 false 才不弹
+            // 未写 notify 时默认发送，明确写 false 才不通知
             final boolean notify = info.optBoolean("notify", true);
-
-            if (remoteCode > currentVersionCode() && !apkUrl.isEmpty()) {
-                runOnUiThread(() -> showUpdateDialog(remoteName, notes, apkUrl));
+            if (!notify || notes.isEmpty()) {
                 return;
             }
-            if (notify && !notes.isEmpty() && remoteCode == currentVersionCode()
-                    && !remoteName.equals(noticeShownVersion())) {
-                runOnUiThread(() -> showReleaseNotes(remoteName, notes));
-            }
+
+            boolean hasNew = remoteCode > currentVersionCode() && !apkUrl.isEmpty();
+            JSONObject notice = new JSONObject();
+            notice.put("version", remoteName);
+            notice.put("notes", notes);
+            notice.put("url", hasNew ? apkUrl : "");
+            notice.put("newVersion", hasNew);
+            pendingUpdateNotice = notice.toString();
+
+            final String payload = pendingUpdateNotice;
+            runOnUiThread(() -> runJs("window.__showUpdateNotice && window.__showUpdateNotice("
+                    + JSONObject.quote(payload) + ")"));
         } catch (Exception ignored) {
             // 网络异常或解析失败时不影响正常使用
         }
-    }
-
-    private String noticeShownVersion() {
-        return getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(KEY_NOTICE_VERSION, "");
-    }
-
-    /** 本版更新说明弹窗：同一版本只弹一次。 */
-    private void showReleaseNotes(String versionName, String notes) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_NOTICE_VERSION, versionName).apply();
-        String message = versionName.isEmpty() ? notes : "版本 " + versionName + "\n\n" + notes;
-        new AlertDialog.Builder(this)
-                .setTitle("更新内容")
-                .setMessage(message)
-                .setPositiveButton("知道了", null)
-                .show();
     }
 
     /** 手动检查更新：无论结果如何都给出提示。 */

@@ -976,22 +976,14 @@
     });
   }
 
-  // 更新通知：默认每个版本首次打开弹一次，version.json 里 notify=false 时不弹
+  // 更新通知：默认每个版本首次打开时像消息一样显示，notify=false 时不显示
   function showUpdateNotice() {
+    if (!window.__showUpdateNotice) return;
     fetch('/api/meta/').then(function (response) {
       return response.json();
     }).then(function (info) {
       if (!info || info.notify === false) return;
-      var version = info.version || '';
-      var notes = (info.notes || '').trim();
-      if (!version || !notes) return;
-      if (LS.getItem('desktop_notice_version') === version) return;
-      LS.setItem('desktop_notice_version', version);
-      openModal('更新内容', function (body, foot, close) {
-        body.appendChild(el('div', 'desk-hint', '当前版本 ' + version));
-        body.appendChild(el('div', 'desk-row-main', notes));
-        foot.appendChild(button('知道了', 'primary', close));
-      });
+      window.__showUpdateNotice(info);
     }).catch(function () { /* 拿不到说明时静默 */ });
   }
 

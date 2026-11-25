@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     private static final String KEY_ACTIVE = "voice_active";
     private static final String KEY_ROLES = "roles";
     private static final String KEY_ACTIVE_ROLE = "active_role";
+    private static final String KEY_NOTICE_VERSION = "notice_version";
     private static final int MAX_STORY = 1000;
     private static final int MAX_PRESETS = 5;
     private static final String[] SAMPLE_POOL = {
@@ -97,11 +98,6 @@ public class MainActivity extends Activity {
     private static final int REQ_WALLPAPER_GALLERY = 4002;
     private static final int REQ_AVATAR_CAMERA = 4003;
     private static final int REQ_AVATAR_GALLERY = 4004;
-    private static final String LOCAL_STYLE_PROMPT =
-            "现在你是在手机上跟对方微信聊天，必须像真人随手回消息："
-            + "每次只回 1-2 句、最多 40 个字；口语化、短句，多用「呀、啦、嘛、欸」这类语气词；"
-            + "别用 Markdown、列表、括号动作，也别说「作为 AI」「希望你喜欢」这类话；"
-            + "先接对方的话，再接一句自己的反应；不知道就直说，不要编造。";
 
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
     private static final String MODEL = "deepseek-chat";
@@ -2109,9 +2105,8 @@ public class MainActivity extends Activity {
     }
 
     private String buildLocalPrompt(String message, String historyJson) {
-        // 小模型的提示词更具体：明确长度、口语化，并给两轮示例，
-        // 否则很容易写成客服腔或长篇大论。
-        String system = buildSystemPrompt() + "\n" + LOCAL_STYLE_PROMPT;
+        // 与云端同一套人设和提示词，另给两轮示例稳定说话风格
+        String system = buildSystemPrompt();
         // Qwen3.5 的模板在关闭思考时会补一个空的 think 块，这里手动带上，
         // 否则模型会先输出一大段思考内容，把上下文占满。
         StringBuilder sb = new StringBuilder();
@@ -2293,7 +2288,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 启动时在后台检查是否有新版本，失败时静默忽略。 */
+    /** 启动时在后台检查更新：有新版本提示升级，同版本则弹一次更新说明。 */
     private void checkForUpdate() {
         try {
             JSONObject info = fetchRemoteVersion();
@@ -2304,14 +2299,37 @@ public class MainActivity extends Activity {
             final String remoteName = info.optString("versionName", "");
             final String apkUrl = info.optString("url", "");
             final String notes = info.optString("notes", "");
+            // 未写 notify 时默认发送，明确写 false 才不弹
+            final boolean notify = info.optBoolean("notify", true);
 
-            if (remoteCode <= currentVersionCode() || apkUrl.isEmpty()) {
+            if (remoteCode > currentVersionCode() && !apkUrl.isEmpty()) {
+                runOnUiThread(() -> showUpdateDialog(remoteName, notes, apkUrl));
                 return;
             }
-            runOnUiThread(() -> showUpdateDialog(remoteName, notes, apkUrl));
+            if (notify && !notes.isEmpty() && remoteCode == currentVersionCode()
+                    && !remoteName.equals(noticeShownVersion())) {
+                runOnUiThread(() -> showReleaseNotes(remoteName, notes));
+            }
         } catch (Exception ignored) {
             // 网络异常或解析失败时不影响正常使用
         }
+    }
+
+    private String noticeShownVersion() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(KEY_NOTICE_VERSION, "");
+    }
+
+    /** 本版更新说明弹窗：同一版本只弹一次。 */
+    private void showReleaseNotes(String versionName, String notes) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_NOTICE_VERSION, versionName).apply();
+        String message = versionName.isEmpty() ? notes : "版本 " + versionName + "\n\n" + notes;
+        new AlertDialog.Builder(this)
+                .setTitle("更新内容")
+                .setMessage(message)
+                .setPositiveButton("知道了", null)
+                .show();
     }
 
     /** 手动检查更新：无论结果如何都给出提示。 */

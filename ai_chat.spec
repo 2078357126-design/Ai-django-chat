@@ -13,6 +13,8 @@ datas = [
     ('android/app/src/main/assets', 'android-assets'),
     # 本地模型清单
     ('models.json', '.'),
+    # 更新说明，供更新通知弹窗展示
+    ('version.json', '.'),
 ]
 
 # 本地推理用到的 llama-server（CI 构建前下载到 vendor/llama）

@@ -1,6 +1,7 @@
 {
   "versionCode": 34,
   "versionName": "3.6.1",
+  "notify": true,
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "更聪明也更有记性：云端模型升级为 deepseek-chat，聊天会带上最近的上文，能接住之前聊过的话题、记住你的信息；小云也清楚自己叫小云，被问身份不会再说自己是 AI。桌面版升级后会自动切换到新模型。"
+  "notes": "本地模型（Qwen3.5）与云端共用同一套人设、记忆和提示词，回答更自然、更像小云；新增更新通知弹窗，每次更新后首次打开会展示本版更新内容，版本说明里写 notify: false 时不弹。"
 }

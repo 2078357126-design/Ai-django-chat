@@ -976,6 +976,25 @@
     });
   }
 
+  // 更新通知：默认每个版本首次打开弹一次，version.json 里 notify=false 时不弹
+  function showUpdateNotice() {
+    fetch('/api/meta/').then(function (response) {
+      return response.json();
+    }).then(function (info) {
+      if (!info || info.notify === false) return;
+      var version = info.version || '';
+      var notes = (info.notes || '').trim();
+      if (!version || !notes) return;
+      if (LS.getItem('desktop_notice_version') === version) return;
+      LS.setItem('desktop_notice_version', version);
+      openModal('更新内容', function (body, foot, close) {
+        body.appendChild(el('div', 'desk-hint', '当前版本 ' + version));
+        body.appendChild(el('div', 'desk-row-main', notes));
+        foot.appendChild(button('知道了', 'primary', close));
+      });
+    }).catch(function () { /* 拿不到说明时静默 */ });
+  }
+
   // ---------------- 聊天 ----------------
 
   var sessionId = 'desk-' + Math.random().toString(36).slice(2, 10);
@@ -1156,4 +1175,7 @@
       startModelPolling();
     }
   }).catch(function () { /* 忽略 */ });
+
+  // 稍等一下，等聊天记录先渲染出来再弹更新说明
+  setTimeout(showUpdateNotice, 800);
 })();

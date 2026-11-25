@@ -84,8 +84,16 @@ def sticker_svg(request, name):
 
 
 def meta(request):
-    """当前桌面/网页版本号，供「更新」按钮比较。"""
-    return JsonResponse({'version': APP_VERSION})
+    """当前版本与更新说明，供「更新」按钮和更新通知弹窗使用。"""
+    data = {'version': APP_VERSION, 'notify': True, 'notes': ''}
+    try:
+        info = json.loads(
+            (_resource_base() / 'version.json').read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        info = {}
+    data['notes'] = str(info.get('notes') or '')
+    data['notify'] = info.get('notify', True) is not False
+    return JsonResponse(data)
 
 
 # ---------------- 本地模型 ----------------
@@ -517,14 +525,6 @@ def _save_record(request, payload, message, reply, model_name):
         pass
 
 
-_LOCAL_STYLE_PROMPT = (
-    '现在你是在手机上跟对方微信聊天，必须像真人随手回消息：'
-    '每次只回 1-2 句、最多 40 个字；口语化、短句，多用「呀、啦、嘛、欸」这类语气词；'
-    '别用 Markdown、列表、括号动作，也别说「作为 AI」「希望你喜欢」这类话；'
-    '先接对方的话，再接一句自己的反应；不知道就直说，不要编造。'
-)
-
-
 def _local_chat(request, payload, model_id):
     """本地模型：直接转发给本机的 llama-server（OpenAI 兼容接口）。"""
     message = payload['message']
@@ -534,9 +534,9 @@ def _local_chat(request, payload, model_id):
     except Exception as exc:  # noqa: BLE001 - 模型未下载/启动失败
         return JsonResponse({'error': str(exc)}, status=503)
 
-    # 小模型提示词更具体，并给两轮示例，避免客服腔和长篇大论
+    # 与云端同一套人设和提示词，另给两轮示例稳定说话风格
     messages = [
-        {'role': 'system', 'content': _build_system_prompt(role) + '\n' + _LOCAL_STYLE_PROMPT},
+        {'role': 'system', 'content': _build_system_prompt(role)},
         {'role': 'user', 'content': '在干嘛'},
         {'role': 'assistant', 'content': '躺着呢，正等你来找我聊天～'},
         {'role': 'user', 'content': '今天好累'},

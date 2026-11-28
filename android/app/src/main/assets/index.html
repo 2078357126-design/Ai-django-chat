@@ -711,9 +711,10 @@
     return pool[0];
   }
 
+  // 表情包只做点缀：大部分回复不配图，命中也只是偶尔来一张
   function stickerForReply(text) {
     if (!text) return '';
-    if (Math.random() > 0.55) return '';
+    if (Math.random() > 0.15) return '';
     return pickSticker(text);
   }
 

@@ -3,5 +3,5 @@
   "versionName": "3.6.1",
   "notify": true,
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "修复回复里冒出 **、>、1. 这类 Markdown 符号的问题：聊天气泡统一显示纯文本，并让模型直接说人话、不写括号动作；本地模型与云端共用同一套人设和记忆。"
+  "notes": "回复更精简了：能一两句说清就不再展开，少用 emoji，表情包改成偶尔点缀；同时保留之前的 Markdown 符号清理和上下文记忆。"
 }

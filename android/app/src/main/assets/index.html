@@ -418,7 +418,7 @@
       var t = turns[i];
       if (t.pending || t.editing) continue;
       if (t.text) list.push({ role: 'user', content: t.text });
-      if (t.reply && !t.error) list.push({ role: 'assistant', content: t.reply });
+      if (t.reply && !t.error) list.push({ role: 'assistant', content: cleanReply(t.reply) });
     }
     var picked = [];
     var total = 0;
@@ -502,12 +502,30 @@
     if (tip) tip.remove();
   }
 
+  // 模型偶尔会带 Markdown 标记，聊天气泡里统一转成纯文本
+  function cleanReply(text) {
+    if (!text) return '';
+    var out = text;
+    out = out.replace(/```[a-zA-Z]*\n?/g, '');
+    out = out.replace(/^\s{0,3}#{1,6}\s*/gm, '');
+    out = out.replace(/^\s{0,3}>\s?/gm, '');
+    out = out.replace(/\*\*([^*]+)\*\*/g, '$1');
+    out = out.replace(/__([^_]+)__/g, '$1');
+    out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2');
+    out = out.replace(/~~([^~]+)~~/g, '$1');
+    out = out.replace(/`([^`]+)`/g, '$1');
+    out = out.replace(/^\s*[-+*]\s+/gm, '');
+    out = out.replace(/^\s*\d+\.\s+/gm, '');
+    out = out.replace(/\n{3,}/g, '\n\n');
+    return out.trim();
+  }
+
   function renderBot(t) {
     t.bot.className = 'msg bot' + (t.error ? ' error' : '') + (t.pending ? ' pending' : '');
     t.bot.innerHTML = '';
 
     var span = document.createElement('span');
-    span.textContent = t.pending ? '…' : (t.reply || '');
+    span.textContent = t.pending ? '…' : cleanReply(t.reply || '');
     t.bot.appendChild(span);
 
     if (!t.pending && t.reply && !t.error) {
@@ -913,7 +931,7 @@
     var t = el._turn;
 
     if (e.target.closest('.speak')) {
-      speakText(t.reply);
+      speakText(cleanReply(t.reply));
     } else if (e.target.closest('.edit')) {
       t.editing = true;
       renderTurn(t);

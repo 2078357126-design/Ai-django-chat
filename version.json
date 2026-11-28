@@ -3,5 +3,5 @@
   "versionName": "3.6.1",
   "notify": true,
   "url": "https://raw.githubusercontent.com/2078357126-design/Ai-django-chat/main/dist-android/AIChat-android.apk",
-  "notes": "安卓新增后台推送：App 没打开也会在系统通知栏提醒新版本，约 15 分钟检查一次，记得允许通知权限；聊天里的更新消息保留。本地模型（Qwen3.5）与云端共用同一套人设、记忆和提示词，回答更自然、更像小云。"
+  "notes": "修复回复里冒出 **、>、1. 这类 Markdown 符号的问题：聊天气泡统一显示纯文本，并让模型直接说人话、不写括号动作；本地模型与云端共用同一套人设和记忆。"
 }
